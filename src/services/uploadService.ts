@@ -25,6 +25,8 @@ export async function parseCourseware(file: File, noteId: string): Promise<Sourc
   const createdAt = new Date().toISOString();
   try {
     const buffer = await readBlobAsArrayBuffer(file);
+    const digest = await crypto.subtle.digest("SHA-256", buffer);
+    const sha256 = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
     const copiedBlob = new Blob([buffer], { type: file.type || "application/octet-stream" });
     if (kind === "pdf") {
       const { parsePdf } = await import("./pdfParser");
@@ -44,6 +46,7 @@ export async function parseCourseware(file: File, noteId: string): Promise<Sourc
         parseError: parseStatus === "partial" ? "提取到的文字过少，可能是扫描版或图片型 PDF；v0.1 暂未完整支持视觉解析。" : undefined,
         textCharCount,
         createdAt,
+        sha256,
         originalBlob: copiedBlob,
         originalMimeType: file.type,
       };
@@ -65,6 +68,7 @@ export async function parseCourseware(file: File, noteId: string): Promise<Sourc
       parseError: parseStatus === "partial" ? "提取到的文字过少，可能是图片型幻灯片；v0.1 暂未完整支持视觉解析。" : undefined,
       textCharCount,
       createdAt,
+      sha256,
       originalBlob: copiedBlob,
       originalMimeType: file.type,
     };

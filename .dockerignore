@@ -1,0 +1,13 @@
+node_modules
+dist
+.data
+.git
+research
+outputs
+recordings
+screenshots
+test-results
+playwright-report
+*.mov
+*.mp4
+*.webm

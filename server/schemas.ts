@@ -88,13 +88,30 @@ export const expandNodeSchema = z.object({
   ).max(10).default([]),
 });
 
+export const learningMapDocumentSchema = z.object({
+  title: z.string().min(1).max(220),
+  nodes: z.array(knowledgeNodeSchema).min(1).max(80),
+});
+
+export const fullLearningPackageSchema = z.object({
+  introduction: learningIntroductionSchema,
+  tree: knowledgeTreeSchema,
+  requirements: learningMapDocumentSchema,
+  questions: learningMapDocumentSchema,
+});
+
+export const chatResponseSchema = z.object({
+  answer: z.string().min(1).max(20_000),
+  citations: z.array(z.string().max(500)).max(20).default([]),
+});
+
 export const learningProfileSchema = z.object({
   intent: z.enum(["overview", "rough", "detailed", "mastery"]),
   level: z.enum(["zero", "related", "some", "professional"]),
   customLevel: z.string().max(500).optional(),
   purpose: z.enum(["curiosity", "systematic", "homework", "presentation", "exam", "custom"]),
   customPurpose: z.string().max(500).optional(),
-  goalStyle: z.enum(["question", "statement"]),
+  goalStyle: z.enum(["question", "statement"]).optional(),
 });
 
 export function flattenKnowledgeTree(tree: z.infer<typeof knowledgeTreeSchema>) {

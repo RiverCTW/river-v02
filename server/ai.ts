@@ -2,7 +2,9 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import {
+  chatResponseSchema,
   expandNodeSchema,
+  learningMapDocumentSchema,
   knowledgeTreeSchema,
   learningIntroductionSchema,
   learningProfileSchema,
@@ -336,6 +338,163 @@ export async function generateKnowledgeTree(input: {
       "",
       "课件内容：",
       compactSource(input.sourceText, 150_000),
+    ].join("\n"),
+  });
+}
+
+export function splitSourceBatches(sourceText: string, maxChars = 60_000): string[] {
+  if (sourceText.length <= maxChars) return [sourceText];
+  const parts = sourceText.split(/\n\n(?=\[第\s*\d+\s*[页张])/);
+  const batches: string[] = [];
+  let current = "";
+  for (const part of parts) {
+    if (current && current.length + part.length + 2 > maxChars) {
+      batches.push(current);
+      current = "";
+    }
+    if (part.length > maxChars) {
+      const slices = Math.ceil(part.length / maxChars);
+      for (let index = 0; index < slices; index += 1) {
+        const slice = part.slice(index * maxChars, (index + 1) * maxChars);
+        if (current) { batches.push(current); current = ""; }
+        batches.push(slice);
+      }
+    } else {
+      current = current ? `${current}\n\n${part}` : part;
+    }
+  }
+  if (current) batches.push(current);
+  return batches.filter(Boolean);
+}
+
+export async function generateCompleteLearningPackage(input: {
+  provider: AIProviderName;
+  apiKey: string;
+  model?: string;
+  sessionId?: string;
+  sourceText: string;
+  profile: unknown;
+  introduction?: unknown;
+}) {
+  const profile = learningProfileSchema.parse(input.profile);
+  const introductionResponse = input.introduction
+    ? null
+    : await generateLearningOpening({
+      provider: input.provider,
+      apiKey: input.apiKey,
+      model: input.model,
+      sessionId: input.sessionId,
+      sourceText: input.sourceText,
+      profile,
+    });
+  const introduction = introductionResponse?.data || input.introduction as z.infer<typeof learningIntroductionSchema>;
+  const batches = splitSourceBatches(input.sourceText);
+  const trees: z.infer<typeof knowledgeTreeSchema>[] = [];
+  const usages: UsageSummary[] = introductionResponse ? [introductionResponse.usage] : [];
+  let model = input.model || defaultModelForProvider(input.provider);
+
+  for (let index = 0; index < batches.length; index += 1) {
+    const response = await generateKnowledgeTree({
+      ...input,
+      sourceText: batches[index],
+      introduction: {
+        ...introduction,
+        batch: index + 1,
+        batchCount: batches.length,
+        instruction: "这是完整课件的一个顺序片段。必须保留本片段全部重要章节、公式、例子和练习，不得只写摘要。",
+      },
+    });
+    trees.push(response.data);
+    usages.push(response.usage);
+    model = response.model;
+  }
+
+  const tree: z.infer<typeof knowledgeTreeSchema> = {
+    title: trees[0]?.title || "学习知识树",
+    summary: trees.map((item) => item.summary).join(" ").slice(0, 1200),
+    nodes: trees.flatMap((item) => item.nodes),
+  };
+  const treeContext = JSON.stringify(tree).slice(0, 60_000);
+  const profileContext = [
+    `学习意图：${profile.intent}`,
+    `当前程度：${profile.level}${profile.customLevel ? `（${profile.customLevel}）` : ""}`,
+    `学习用途：${profile.purpose}${profile.customPurpose ? `（${profile.customPurpose}）` : ""}`,
+  ].join("\n");
+
+  const mapRequest = async (kind: "requirements" | "questions") => generateStructured({
+    provider: input.provider,
+    apiKey: input.apiKey,
+    model,
+    sessionId: input.sessionId,
+    schema: learningMapDocumentSchema,
+    schemaName: kind === "requirements" ? "requirements_learning_map" : "question_learning_map",
+    effort: "high",
+    maxTokens: 48_000,
+    system: kind === "requirements"
+      ? "你是 River 的要求式学习地图生成器。把 Learning Outcomes、章节重点和技能要求整理成完整可编辑层级。每条要求都应有定义、解释或可操作说明，不能变成几句摘要。"
+      : "你是 River 的问题式学习地图生成器。根据标题、副标题、Learning Outcomes、关键概念、机制和计算任务生成由浅入深的问题树。问题下必须留有可继续展开的知识块。",
+    user: [
+      profileContext,
+      kind === "requirements" ? "生成要求式学习地图。" : "生成问题式学习地图。",
+      "完整知识树结构：",
+      treeContext,
+      "原始课件节选（如需核对）：",
+      compactSource(input.sourceText, 45_000),
+    ].join("\n"),
+  });
+
+  const [requirements, questions] = await Promise.all([mapRequest("requirements"), mapRequest("questions")]);
+  const usage = [...usages, requirements.usage, questions.usage].reduce<UsageSummary>((sum, item) => ({
+    inputTokens: sum.inputTokens + item.inputTokens,
+    outputTokens: sum.outputTokens + item.outputTokens,
+    cachedInputTokens: sum.cachedInputTokens + item.cachedInputTokens,
+    estimatedCostUsd: sum.estimatedCostUsd + item.estimatedCostUsd,
+    estimatedCost: sum.estimatedCost + item.estimatedCost,
+    currency: item.currency,
+  }), { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, estimatedCostUsd: 0, estimatedCost: 0, currency: "USD" });
+
+  return {
+    data: { introduction, tree, requirements: requirements.data, questions: questions.data, batchCount: batches.length },
+    usage,
+    model,
+  };
+}
+
+export async function generateChatAnswer(input: {
+  provider: AIProviderName;
+  apiKey: string;
+  model?: string;
+  sessionId?: string;
+  question: string;
+  mode: "sources" | "expanded";
+  sourceText: string;
+  treeText: string;
+  personalAnswers: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+}) {
+  return generateStructured({
+    provider: input.provider,
+    apiKey: input.apiKey,
+    model: input.model || defaultModelForProvider(input.provider),
+    sessionId: input.sessionId,
+    schema: chatResponseSchema,
+    schemaName: "river_chat_response",
+    effort: "high",
+    maxTokens: 24_000,
+    system: [
+      "你是 River 的学习伴随助手。",
+      "你只能回答问题，绝不能修改、删除或重新生成用户笔记。",
+      input.mode === "sources"
+        ? "尽可能依据提供的课件、知识树和个人回答。资料没有充分依据时要明确说明，不得编造课件原文或页码。"
+        : "可以使用课件外知识、例子、类比和背景补充，但要区分课件直接支持的内容与补充解释。",
+      "回答使用清晰中文，必要时给出页码或来源引用。",
+    ].join("\n"),
+    user: [
+      `最近对话：${JSON.stringify((input.history || []).slice(-8)).slice(0, 20_000)}`,
+      `原始课件节选：${compactSource(input.sourceText, 50_000)}`,
+      `当前知识树节选：${input.treeText.slice(0, 45_000)}`,
+      `用户个人回答：${input.personalAnswers.slice(0, 25_000)}`,
+      `问题：${input.question}`,
     ].join("\n"),
   });
 }

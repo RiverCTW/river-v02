@@ -1,72 +1,68 @@
-# River v0.1
+# River v0.2
 
-River 是一个浏览器端 AI 学习应用，实现：
+River v0.2 是账号化、服务端持久化、双编辑器学习工作台。现有 Effie/TipTap 编辑器内核保留，v0.1 的键入、Enter、Tab、Shift+Tab、折叠、拖动、撤销和中文输入法行为继续通过完整回归。
 
-`上传课件 → 学习三问 → 学习开场 → 结构化知识树 → 自由编辑 → AI 局部帮助 → 自动保存 → 备份恢复`
-
-## 运行地址
-
-- 开发地址：`http://127.0.0.1:5174/`
-- 本机生产地址：`http://127.0.0.1:8790/`
-- 临时 HTTPS 地址：`https://surrey-mines-joseph-care.trycloudflare.com`
-
-临时 HTTPS 来自 Cloudflare quick tunnel，适合几位朋友试用，不是长期稳定部署。
-
-## 启动方式
+## 本地运行
 
 ```bash
 export PATH=/Users/river/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH
-cd /Users/river/Documents/Codex/2026-08-24/hi/river-v0.1
-pnpm install
+cd /Users/river/Documents/Codex/2026-08-24/hi/riverv0.2
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-生产构建：
+- Web：`http://127.0.0.1:5182/`
+- API：`http://127.0.0.1:8792/`
+- 本地首次管理员：`admin` / `river-admin`
+
+生产环境必须在首次启动前设置 `RIVER_ADMIN_USERNAME`、`RIVER_ADMIN_PASSWORD` 和 `RIVER_DB_PATH`，参考 `.env.example`。
+
+## 构建与测试
 
 ```bash
+pnpm test
+pnpm e2e
 pnpm build
-PORT=8790 NODE_ENV=production pnpm start
 ```
 
-## 文档
+当前实际结果：
 
-- `RIVER_V0.1_IMPLEMENTATION_PLAN.md`
-- `RIVER_V0.1_ARCHITECTURE.md`
-- `RIVER_V0.1_FEATURE_STATUS.md`
-- `RIVER_V0.1_TEST_REPORT.md`
-- `RIVER_V0.1_USER_GUIDE.md`
-- `RIVER_V0.1_SCREENSHOTS.md`
-- `RIVER_V0.1_DEEPSEEK_EFFIE_UPDATE.md`（本次 DeepSeek 双模型与 Effie 可编辑大纲改造）
-- `RIVER_V0.1_OPENCODE_GO_CC_SWITCH.md`（OpenCode Go 与本机 cc-switch 安全接入）
-- `RIVER_V0.1_SAFARI_UPLOAD_FIX.md`（Safari 课件上传兼容修复）
+- Vitest：8 个文件，29/29。
+- Playwright Edge：81/81。
+- Playwright WebKit Smoke：1/1。
+- TypeScript + Vite production build：通过。
 
-## 关键安全设计
+## 当前架构
 
-- 每位用户使用自己的 OpenAI 或卡扣 AI API Key。
-- 手动输入的 API Key 只保存在当前页面内存中。
-- OpenCode Go 可选本机 cc-switch 模式，由 River 后端临时读取，Key 不返回浏览器。
-- Key 不写入源码、Git、URL、日志、localStorage 或 IndexedDB。
-- 后端只在当前请求中使用 Key。
-- 备份文件不包含 API Key。
+- React 19 + TypeScript + Vite + Zustand。
+- Express 5 + Node.js 24。
+- 本地开发权威数据库：服务端 SQLite，默认 `.data/river-v0.2.sqlite`。
+- 浏览器 IndexedDB：编辑缓存、离线草稿和兼容层。
+- 生产 PostgreSQL 目标 Schema：`db/postgres-schema.sql`。
+- 编辑器：TipTap 3.32 + ProseMirror，现有 Effie 内核未重写。
+- 账号：服务端 scrypt 密码哈希、HttpOnly 会话 Cookie、管理员预建账号。
+- 工作区：服务端 revision 校验，客户端旧 revision 不能静默覆盖新数据。
 
-## AI 模型
+## v0.2 功能
 
-- OpenAI：`gpt-6-luna`
-- DeepSeek：`deepseek-v4.1-flash`，显示名为 DeepSeek V4.1 Flash，请求通过卡扣 AI `https://api.kakouai.com`
-- OpenCode Go：默认 `deepseek-v4.1-flash`，Base URL 为 `https://opencode.ai/zen/go/v1`
-- 供应商使用各自独立的 API Key，切换后后续 AI 请求真实使用当前供应商。
-- OpenCode Go 的本机 cc-switch 模式会被 Cloudflare 公网请求拒绝。
-- 如果 Key 没有对应模型权限，River 显示真实错误，不会静默换模型。
+- 用户名密码登录、管理员创建账号、账号数据隔离。
+- 全部笔记、收藏、最近使用、最近删除、本地资料库和搜索。
+- 文件夹右键菜单、新建同级/子文件夹、拖动排序、整树软删除和恢复。
+- Effie 连续轮廓卡片、收藏爱心、置顶、笔记副本、移动式拷贝/粘贴。
+- 独立笔记页左右无级分隔、伴随栏上下无级分隔和比例恢复。
+- 左侧主知识树、右侧要求式/问题式学习地图，两个完整 Effie 编辑器独立运行。
+- 一份笔记多份 PDF/PPTX、真实解析状态、排序、删除、SHA-256 去重和生成后锁定。
+- 三项必填学习偏好，生成成功后偏好和资料永久锁定。
+- 一次生成完整知识树、要求式地图和问题式地图；长资料按顺序分批生成。
+- 每份笔记独立 AI 对话、资料优先/允许补充两种模式、历史长期保存。
+- AI 对话只读知识上下文，不直接修改知识树或地图。
 
-## 编辑器
+## 部署状态
 
-- 文件管理界面右栏和独立笔记页共用同一个 Tiptap/ProseMirror 可编辑大纲编辑器。
-- 支持 Enter、Tab、Shift+Tab、折叠、复制粘贴、撤销重做和语义标记。
-- 支持应用内专注模式，不重建编辑器，不丢失当前笔记和撤销记录。
+仓库包含 `Dockerfile`、`.env.example`、`render.yaml` 和 PostgreSQL Schema，但当前环境没有云平台、托管数据库或对象存储凭据，因此当前状态是：
 
-## 当前限制
+**开发完成，等待云端部署验收。**
 
-- 没有用户 API Key 的情况下，无法完成真实 GPT-6 Luna 生成测试。
-- Safari 未在本环境中自动化验证。
-- 扫描版/图片型 PDF 只做检测和提示，v0.1 不保证视觉解析。
-- 原生拖拽排序、收藏夹、最近使用、完整涂鸦和云端同步属于后续版本。
+只有完成非临时网址、云端 Postgres/对象存储、服务重启和新部署后数据仍存在、第二台设备同账号读取，才能宣布正式云端可用。
+
+完整交付说明见 `RIVER_V0.2_COMPLETE_DELIVERY_REPORT.md`。

@@ -3,10 +3,12 @@ import { nanoid } from "nanoid";
 import type {
   AIRequestRecord,
   AppSetting,
+  ChatMessage,
   ContentBlock,
   Folder,
   KnowledgeNode,
   LearningIntroduction,
+  LearningMap,
   LearningProfile,
   Note,
   NoteBundle,
@@ -25,6 +27,8 @@ class RiverDatabase extends Dexie {
   blocks!: Table<ContentBlock, string>;
   aiRequests!: Table<AIRequestRecord, string>;
   settings!: Table<AppSetting, string>;
+  learningMaps!: Table<LearningMap, [string, LearningMap["kind"]]>;
+  chatMessages!: Table<ChatMessage, string>;
 
   constructor() {
     super("river-v0.1");
@@ -38,6 +42,13 @@ class RiverDatabase extends Dexie {
       blocks: "id, noteId, nodeId, order, updatedAt",
       aiRequests: "id, noteId, operation, status, createdAt",
       settings: "key, updatedAt",
+    });
+    this.version(2).stores({
+      folders: "id, parentId, order, updatedAt, deletedAt, deletedRootId",
+      notes: "id, folderId, uiStyle, updatedAt, deletedAt, favorite, pinned, lastOpenedAt, generationState",
+      sources: "id, noteId, parseStatus, createdAt, order",
+      learningMaps: "[noteId+kind], noteId, kind, updatedAt",
+      chatMessages: "id, noteId, createdAt, role",
     });
   }
 }
@@ -60,6 +71,8 @@ async function patchNote(noteId: string, changes: Partial<Omit<Note, "id">>): Pr
 let seedPromise: Promise<void> | null = null;
 
 export function ensureSeedData(): Promise<void> {
+  const e2eSeed = import.meta.env.VITE_E2E_LOCAL_ONLY === "1";
+  if (!e2eSeed && (typeof localStorage === "undefined" || localStorage.getItem("river.seed-demo") !== "1")) return Promise.resolve();
   if (!seedPromise) seedPromise = seedInitialData().then(cleanupLegacyDuplicateSeedData);
   return seedPromise;
 }
@@ -178,10 +191,7 @@ async function seedInitialData(): Promise<void> {
 
 export async function createFolder(name: string, parentId: string | null = null): Promise<Folder> {
   const createdAt = nowIso();
-  const siblings = await db.folders.where("parentId").equals(parentId ?? "null").toArray();
-  const actualSiblings = parentId === null
-    ? (await db.folders.toArray()).filter((folder) => folder.parentId === null)
-    : siblings;
+  const actualSiblings = (await db.folders.toArray()).filter((folder) => folder.parentId === parentId && !folder.deletedAt);
   const folder: Folder = {
     id: nanoid(),
     parentId,
@@ -198,6 +208,40 @@ export async function renameFolder(folderId: string, name: string): Promise<void
   await db.folders.update(folderId, { name: name.trim() || "未命名文件夹", updatedAt: nowIso() });
 }
 
+export async function moveFolder(folderId: string, parentId: string | null, order: number): Promise<void> {
+  if (folderId === parentId) throw new Error("文件夹不能移动到自身内部。");
+  const folders = await db.folders.toArray();
+  const descendants = new Set<string>();
+  const collect = (id: string) => folders.filter((folder) => folder.parentId === id).forEach((folder) => { descendants.add(folder.id); collect(folder.id); });
+  collect(folderId);
+  if (parentId && descendants.has(parentId)) throw new Error("文件夹不能移动到自己的后代中。");
+  await db.transaction("rw", db.folders, async () => {
+    const current = await db.folders.get(folderId);
+    if (!current) return;
+    const oldParentId = current.parentId;
+    const targetSiblings = (await db.folders.toArray())
+      .filter((folder) => folder.id !== folderId && folder.parentId === parentId && !folder.deletedAt)
+      .sort((a, b) => a.order - b.order);
+    const insertion = Math.max(0, Math.min(order, targetSiblings.length));
+    targetSiblings.splice(insertion, 0, { ...current, parentId, deletedAt: null });
+    for (let index = 0; index < targetSiblings.length; index += 1) {
+      await db.folders.put({ ...targetSiblings[index], parentId, order: index, updatedAt: nowIso() });
+    }
+    if (oldParentId !== parentId) {
+      const oldSiblings = (await db.folders.toArray()).filter((folder) => folder.parentId === oldParentId && !folder.deletedAt).sort((a, b) => a.order - b.order);
+      for (let index = 0; index < oldSiblings.length; index += 1) await db.folders.update(oldSiblings[index].id, { order: index });
+    }
+  });
+}
+
+export async function reorderFolders(parentId: string | null, ids: string[]): Promise<void> {
+  await db.transaction("rw", db.folders, async () => {
+    for (let index = 0; index < ids.length; index += 1) {
+      await db.folders.update(ids[index], { parentId, order: index, updatedAt: nowIso() });
+    }
+  });
+}
+
 export async function deleteFolder(folderId: string): Promise<{ notesMoved: number; foldersDeleted: number }> {
   return db.transaction("rw", db.folders, db.notes, async () => {
     const allFolders = await db.folders.toArray();
@@ -208,9 +252,62 @@ export async function deleteFolder(folderId: string): Promise<{ notesMoved: numb
     };
     collect(folderId);
     const notes = await db.notes.where("folderId").anyOf([...ids]).toArray();
-    for (const note of notes) await patchNote(note.id, { folderId: null });
-    await db.folders.bulkDelete([...ids]);
+    const deletedAt = nowIso();
+    for (const id of ids) {
+      const folder = allFolders.find((item) => item.id === id);
+      if (folder) await db.folders.put({ ...folder, deletedAt, deletedRootId: folderId, updatedAt: deletedAt });
+    }
+    for (const note of notes) await patchNote(note.id, { deletedAt });
     return { notesMoved: notes.length, foldersDeleted: ids.size };
+  });
+}
+
+export async function restoreFolder(folderId: string): Promise<void> {
+  await db.transaction("rw", db.folders, db.notes, async () => {
+    const allFolders = await db.folders.toArray();
+    const target = allFolders.find((folder) => folder.id === folderId);
+    if (!target) return;
+    const ids = new Set<string>();
+    const collect = (id: string) => {
+      ids.add(id);
+      allFolders.filter((folder) => folder.parentId === id).forEach((folder) => collect(folder.id));
+    };
+    collect(folderId);
+    const parentExists = target.parentId && allFolders.some((folder) => folder.id === target.parentId && !folder.deletedAt);
+    const updatedAt = nowIso();
+    for (const id of ids) {
+      const folder = allFolders.find((item) => item.id === id);
+      if (folder) await db.folders.put({ ...folder, parentId: id === folderId && !parentExists ? null : folder.parentId, deletedAt: null, deletedRootId: null, updatedAt });
+    }
+    const notes = await db.notes.where("folderId").anyOf([...ids]).toArray();
+    for (const note of notes) await patchNote(note.id, { deletedAt: null });
+  });
+}
+
+export async function permanentlyDeleteFolder(folderId: string): Promise<void> {
+  await db.transaction("rw", [db.folders, db.notes, db.nodes, db.blocks, db.sources, db.profiles, db.introductions, db.learningMaps, db.chatMessages], async () => {
+    const allFolders = await db.folders.toArray();
+    const ids = new Set<string>();
+    const collect = (id: string) => {
+      ids.add(id);
+      allFolders.filter((folder) => folder.parentId === id).forEach((folder) => collect(folder.id));
+    };
+    collect(folderId);
+    const notes = await db.notes.where("folderId").anyOf([...ids]).toArray();
+    const noteIds = notes.map((note) => note.id);
+    if (noteIds.length) {
+      await Promise.all([
+        db.nodes.where("noteId").anyOf(noteIds).delete(),
+        db.blocks.where("noteId").anyOf(noteIds).delete(),
+        db.sources.where("noteId").anyOf(noteIds).delete(),
+        db.profiles.where("noteId").anyOf(noteIds).delete(),
+        db.introductions.where("noteId").anyOf(noteIds).delete(),
+        db.learningMaps.where("noteId").anyOf(noteIds).delete(),
+        db.chatMessages.where("noteId").anyOf(noteIds).delete(),
+      ]);
+    }
+    await db.notes.bulkDelete(noteIds);
+    await db.folders.bulkDelete([...ids]);
   });
 }
 
@@ -255,6 +352,13 @@ export async function createNote(folderId: string | null, title = "新建学习�
     createdAt,
     updatedAt: createdAt,
     deletedAt: null,
+    favorite: false,
+    pinned: false,
+    generationState: "draft",
+    sourcesLockedAt: null,
+    profileLockedAt: null,
+    generatedAt: null,
+    generationError: null,
   };
   await db.transaction("rw", db.notes, db.nodes, db.blocks, async () => {
     await db.notes.add(note);
@@ -276,8 +380,76 @@ export async function restoreNote(noteId: string): Promise<void> {
   await patchNote(noteId, { deletedAt: null });
 }
 
+export async function touchNoteLastOpened(noteId: string): Promise<void> {
+  const existing = await db.notes.get(noteId);
+  if (existing) await db.notes.put({ ...existing, lastOpenedAt: nowIso() });
+}
+
+export async function permanentlyDeleteNote(noteId: string): Promise<void> {
+  await db.transaction("rw", [db.notes, db.nodes, db.blocks, db.sources, db.profiles, db.introductions, db.learningMaps, db.chatMessages], async () => {
+    await Promise.all([
+      db.nodes.where("noteId").equals(noteId).delete(),
+      db.blocks.where("noteId").equals(noteId).delete(),
+      db.sources.where("noteId").equals(noteId).delete(),
+      db.profiles.where("noteId").equals(noteId).delete(),
+      db.introductions.where("noteId").equals(noteId).delete(),
+      db.learningMaps.where("noteId").equals(noteId).delete(),
+      db.chatMessages.where("noteId").equals(noteId).delete(),
+    ]);
+    await db.notes.delete(noteId);
+  });
+}
+
 export async function moveNoteToFolder(noteId: string, folderId: string | null): Promise<void> {
   await patchNote(noteId, { folderId });
+}
+
+export async function duplicateNote(noteId: string): Promise<Note | null> {
+  const original = await db.notes.get(noteId);
+  if (!original) return null;
+  const copy = await createNote(original.folderId, `${original.title} 副本`, original.uiStyle);
+  await db.transaction("rw", [db.notes, db.nodes, db.blocks, db.sources, db.profiles, db.introductions], async () => {
+    const sources = await db.sources.where("noteId").equals(noteId).toArray();
+    const nodes = await db.nodes.where("noteId").equals(noteId).toArray();
+    const blocks = await db.blocks.where("noteId").equals(noteId).toArray();
+    const profile = await db.profiles.get(noteId);
+    const introduction = await db.introductions.get(noteId);
+    const nodeIds = new Map(nodes.map((node) => [node.id, nanoid()]));
+    const createdAt = nowIso();
+    await db.nodes.where("noteId").equals(copy.id).delete();
+    await db.blocks.where("noteId").equals(copy.id).delete();
+    await db.nodes.bulkAdd(nodes.map((node) => ({
+      ...node,
+      id: nodeIds.get(node.id) || nanoid(),
+      noteId: copy.id,
+      parentId: node.parentId ? nodeIds.get(node.parentId) || null : null,
+      createdAt,
+      updatedAt: createdAt,
+    })));
+    await db.blocks.bulkAdd(blocks.map((block) => ({
+      ...block,
+      id: nanoid(),
+      noteId: copy.id,
+      nodeId: nodeIds.get(block.nodeId) || "",
+      createdAt,
+      updatedAt: createdAt,
+    })).filter((block) => block.nodeId));
+    for (const source of sources) await db.sources.put({ ...source, id: nanoid(), noteId: copy.id, createdAt: nowIso() });
+    if (profile) await db.profiles.put({ ...profile, noteId: copy.id, lockedAt: profile.lockedAt, updatedAt: nowIso() });
+    if (introduction) await db.introductions.put({ ...introduction, noteId: copy.id, generatedAt: nowIso() });
+    await db.notes.put({
+      ...copy,
+      editorDoc: original.editorDoc,
+      favorite: false,
+      pinned: false,
+      generationState: original.generationState,
+      sourcesLockedAt: original.sourcesLockedAt,
+      profileLockedAt: original.profileLockedAt,
+      generatedAt: original.generatedAt,
+      copiedFromNoteId: noteId,
+    });
+  });
+  return (await db.notes.get(copy.id)) || null;
 }
 
 export async function getNoteBundle(noteId: string): Promise<NoteBundle | null> {
@@ -290,9 +462,11 @@ export async function getNoteBundle(noteId: string): Promise<NoteBundle | null> 
     db.nodes.where("noteId").equals(noteId).toArray(),
     db.blocks.where("noteId").equals(noteId).toArray(),
   ]);
+  const sortedSources = sources.sort((a, b) => Number(a.order || 0) - Number(b.order || 0) || a.createdAt.localeCompare(b.createdAt));
   return {
     note,
-    source: sources.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0],
+    source: sortedSources[0],
+    sources: sortedSources,
     profile,
     introduction,
     nodes: nodes.sort((a, b) => a.order - b.order),
@@ -329,6 +503,22 @@ export async function upsertLearningProfile(profile: LearningProfile): Promise<v
 
 export async function upsertIntroduction(introduction: LearningIntroduction): Promise<void> {
   await db.introductions.put(introduction);
+}
+
+export async function upsertLearningMap(map: LearningMap): Promise<void> {
+  await db.learningMaps.put(map);
+}
+
+export async function getLearningMaps(noteId: string): Promise<LearningMap[]> {
+  return db.learningMaps.where("noteId").equals(noteId).toArray();
+}
+
+export async function addChatMessage(message: ChatMessage): Promise<void> {
+  await db.chatMessages.put(message);
+}
+
+export async function listChatMessages(noteId: string): Promise<ChatMessage[]> {
+  return (await db.chatMessages.where("noteId").equals(noteId).toArray()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 export async function recordAIRequest(record: AIRequestRecord): Promise<void> {

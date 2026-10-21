@@ -5,15 +5,21 @@ import {
   createNote,
   db,
   deleteFolder,
+  duplicateNote,
   ensureSeedData,
   getNoteBundle,
+  getLearningMaps,
   getSetting,
   listActiveNotes,
   listDeletedNotes,
   moveNoteToFolder,
+  moveFolder,
+  permanentlyDeleteFolder,
+  permanentlyDeleteNote,
   renameFolder,
   replaceKnowledgeTree,
   restoreNote,
+  restoreFolder,
   searchNotes,
   setSetting,
   softDeleteNote,
@@ -21,7 +27,9 @@ import {
   upsertIntroduction,
   upsertLearningProfile,
   upsertSourceDocument,
+  upsertLearningMap,
   recordAIRequest,
+  touchNoteLastOpened,
 } from "../db/database";
 import type {
   AIProvider,
@@ -31,6 +39,7 @@ import type {
   Folder,
   KnowledgeNode,
   LearningIntroduction,
+  LearningMap,
   LearningProfile,
   Note,
   NoteBundle,
@@ -38,7 +47,7 @@ import type {
   UIStyle,
 } from "../types";
 import { addChildNode, addNodeAfter, deleteNode, flattenTree, indentNode, moveNode, outdentNode, buildTree } from "../services/tree";
-import { CC_SWITCH_LOCAL_KEY, expandNode, generateOpening, generateTree, regenerateBlock, simplifyBlock, validateKey } from "../services/aiClient";
+import { CC_SWITCH_LOCAL_KEY, expandNode, generateFullLearningPackage, generateOpening, generateTree, regenerateBlock, simplifyBlock, validateKey } from "../services/aiClient";
 import { parseCourseware, sourceToText } from "../services/uploadService";
 import { createBackupPayload, restoreBackupPayload } from "../db/backup";
 import { composeLearningOpeningOutline } from "../services/learningOpeningOutline";
@@ -102,6 +111,9 @@ interface AppState {
   createFolderAction: (name: string, parentId?: string | null) => Promise<void>;
   renameFolderAction: (folderId: string, name: string) => Promise<void>;
   deleteFolderAction: (folderId: string) => Promise<void>;
+  restoreFolderAction: (folderId: string) => Promise<void>;
+  permanentlyDeleteFolderAction: (folderId: string) => Promise<void>;
+  moveFolderAction: (folderId: string, parentId: string | null, order: number) => Promise<void>;
   createNoteAction: (folderId: string | null) => Promise<string>;
   openNote: (noteId: string) => Promise<void>;
   closeNote: () => void;
@@ -109,6 +121,11 @@ interface AppState {
   deleteNoteAction: (noteId: string) => Promise<void>;
   restoreNoteAction: (noteId: string) => Promise<void>;
   moveNoteAction: (noteId: string, folderId: string | null) => Promise<void>;
+  renameNoteAction: (noteId: string, title: string) => Promise<void>;
+  toggleFavoriteAction: (noteId: string) => Promise<void>;
+  togglePinnedAction: (noteId: string) => Promise<void>;
+  duplicateNoteAction: (noteId: string) => Promise<string | null>;
+  permanentlyDeleteNoteAction: (noteId: string) => Promise<void>;
   updateNodeTitle: (nodeId: string, title: string) => void;
   updateBlockText: (blockId: string, text: string) => void;
   updateBlockType: (blockId: string, type: ContentBlockType) => void;
@@ -133,6 +150,9 @@ interface AppState {
   validateApiKeyAction: () => Promise<boolean>;
   setModel: (model: string) => Promise<void>;
   attachCourseware: (file: File) => Promise<SourceDocument | null>;
+  deleteSourceAction: (sourceId: string) => Promise<void>;
+  reorderSourcesAction: (sourceIds: string[]) => Promise<void>;
+  saveLearningMapAction: (map: LearningMap) => Promise<void>;
   saveLearningProfile: (profile: LearningProfile) => Promise<void>;
   materializeLearningOpeningAction: () => Promise<void>;
   generateOpeningAction: () => Promise<void>;
@@ -310,7 +330,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteFolderAction: async (folderId) => {
     const result = await deleteFolder(folderId);
     await get().refreshLibrary();
-    get().showToast(`已删除 ${result.foldersDeleted} 个文件夹，${result.notesMoved} 篇笔记已移到根目录。`, "info");
+    get().showToast(`已将 ${result.foldersDeleted} 个文件夹和 ${result.notesMoved} 篇笔记移入最近删除。`, "info");
+  },
+
+  restoreFolderAction: async (folderId) => {
+    await restoreFolder(folderId);
+    await get().refreshLibrary();
+  },
+
+  permanentlyDeleteFolderAction: async (folderId) => {
+    await permanentlyDeleteFolder(folderId);
+    await get().refreshLibrary();
+  },
+
+  moveFolderAction: async (folderId, parentId, order) => {
+    await moveFolder(folderId, parentId, order);
+    await get().refreshLibrary();
   },
 
   createNoteAction: async (folderId) => {
@@ -322,6 +357,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openNote: async (noteId) => {
     await inlineTreeSaveQueue.catch(() => undefined);
+    await touchNoteLastOpened(noteId);
     const bundle = await getNoteBundle(noteId);
     if (!bundle) return;
     const cachedRecord = readEditorSnapshotRecord(noteId);
@@ -348,9 +384,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       history: [],
       future: [],
     });
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem("river.active-note", noteId);
   },
 
-  closeNote: () => set({ bundle: null, activeNoteId: null, selectedNodeId: null, selectedBlockId: null, pendingAI: null, focusMode: false }),
+  closeNote: () => {
+    if (typeof sessionStorage !== "undefined") sessionStorage.removeItem("river.active-note");
+    set({ bundle: null, activeNoteId: null, selectedNodeId: null, selectedBlockId: null, pendingAI: null, focusMode: false });
+  },
 
   updateNoteTitleAction: async (title) => {
     const bundle = get().bundle;
@@ -390,6 +430,36 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   moveNoteAction: async (noteId, folderId) => {
     await moveNoteToFolder(noteId, folderId);
+    await get().refreshLibrary();
+  },
+
+  renameNoteAction: async (noteId, title) => {
+    await updateNote(noteId, { title: title.trim() || "未命名笔记" });
+    await get().refreshLibrary();
+  },
+
+  toggleFavoriteAction: async (noteId) => {
+    const note = await db.notes.get(noteId);
+    if (!note) return;
+    await updateNote(noteId, { favorite: !note.favorite });
+    await get().refreshLibrary();
+  },
+
+  togglePinnedAction: async (noteId) => {
+    const note = await db.notes.get(noteId);
+    if (!note) return;
+    await updateNote(noteId, { pinned: !note.pinned });
+    await get().refreshLibrary();
+  },
+
+  duplicateNoteAction: async (noteId) => {
+    const copy = await duplicateNote(noteId);
+    await get().refreshLibrary();
+    return copy?.id || null;
+  },
+
+  permanentlyDeleteNoteAction: async (noteId) => {
+    await permanentlyDeleteNote(noteId);
     await get().refreshLibrary();
   },
 
@@ -676,9 +746,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   attachCourseware: async (file) => {
     const bundle = get().bundle;
     if (!bundle) return null;
+    if (bundle.note.sourcesLockedAt || bundle.note.generationState === "completed") {
+      get().showToast("知识树生成成功后，这份笔记的资料集合已经锁定。", "error");
+      return null;
+    }
     set({ isGenerating: true, generationMessage: "正在解析课件…", generationProgress: 12 });
     try {
+      const existing = bundle.sources || [];
       let source = await parseCourseware(file, bundle.note.id);
+      const duplicate = existing.find((item) => item.sha256 && item.sha256 === source.sha256);
+      if (duplicate) {
+        set({ isGenerating: false, generationProgress: 0, generationMessage: "" });
+        get().showToast(`“${duplicate.fileName}”已经在这份笔记中，未重复添加。`, "info");
+        return duplicate;
+      }
+      source = { ...source, order: existing.length };
       try {
         await upsertSourceDocument(source);
       } catch {
@@ -686,8 +768,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         await upsertSourceDocument(source);
         get().showToast("课件已解析，但当前浏览器无法保存原始附件，只保留了提取内容。", "info");
       }
+      const sources = (await db.sources.where("noteId").equals(bundle.note.id).toArray()).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+      await updateNote(bundle.note.id, { generationState: "sources_ready" });
       set((state) => state.bundle ? {
-        bundle: { ...state.bundle, source },
+        bundle: { ...state.bundle, source: sources[0], sources, note: { ...state.bundle.note, generationState: "sources_ready" } },
         isGenerating: false,
         generationMessage: source.parseStatus === "parsed" ? "课件解析完成。" : "课件解析完成，但存在限制。",
         generationProgress: 100,
@@ -702,9 +786,44 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  deleteSourceAction: async (sourceId) => {
+    const bundle = get().bundle;
+    if (!bundle) return;
+    if (bundle.note.sourcesLockedAt || bundle.note.generationState === "completed") {
+      get().showToast("知识树生成成功后，资料集合已经锁定。", "error");
+      return;
+    }
+    await db.sources.delete(sourceId);
+    const sources = (await db.sources.where("noteId").equals(bundle.note.id).toArray()).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+    set((state) => state.bundle ? { bundle: { ...state.bundle, source: sources[0], sources } } : {});
+  },
+
+  reorderSourcesAction: async (sourceIds) => {
+    const bundle = get().bundle;
+    if (!bundle) return;
+    if (bundle.note.sourcesLockedAt || bundle.note.generationState === "completed") {
+      get().showToast("知识树生成成功后，资料顺序已经锁定。", "error");
+      return;
+    }
+    await db.transaction("rw", db.sources, async () => {
+      for (let index = 0; index < sourceIds.length; index += 1) await db.sources.update(sourceIds[index], { order: index });
+    });
+    const sources = (await db.sources.where("noteId").equals(bundle.note.id).toArray()).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+    set((state) => state.bundle ? { bundle: { ...state.bundle, source: sources[0], sources } } : {});
+  },
+
   saveLearningProfile: async (profile) => {
+    const bundle = get().bundle;
+    if (bundle?.note.profileLockedAt || bundle?.profile?.lockedAt) {
+      get().showToast("这份笔记的学习偏好已经锁定。", "error");
+      return;
+    }
     await upsertLearningProfile(profile);
     set((state) => state.bundle ? { bundle: { ...state.bundle, profile } } : {});
+  },
+
+  saveLearningMapAction: async (map) => {
+    await upsertLearningMap(map);
   },
 
   materializeLearningOpeningAction: async () => {
@@ -804,119 +923,72 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   generateTreeAction: async () => {
     const bundle = get().bundle;
-    if (!bundle?.source || !bundle.profile || !bundle.introduction) {
-      get().showToast("请先完成课件解析、学习三问和学习开场。", "error");
-      return;
+    if (!bundle || !(bundle.sources?.length || bundle.source) || !bundle.profile) {
+      get().showToast("请先上传课件并完成三项学习偏好。", "error"); return;
+    }
+    if (bundle.note.generationState === "completed") {
+      get().showToast("这份笔记已经生成过知识树，不能覆盖。需要新内容时请新建笔记。", "error"); return;
+    }
+    const profile = bundle.profile;
+    if (!profile.intent || !profile.level || !profile.purpose || (profile.purpose === "custom" && !profile.customPurpose?.trim())) {
+      get().showToast("三项学习偏好必须全部有效填写。", "error"); return;
     }
     const state = get();
     const apiKey = currentApiKey(state);
     if (!apiKey) {
-      get().showToast(`请先配置 ${providerDisplayName(state.provider)} API Key。`, "error");
-      return;
+      get().showToast(`请先配置 ${providerDisplayName(state.provider)} API Key。`, "error"); return;
     }
-    set({ isGenerating: true, generationMessage: "正在生成知识树…", generationProgress: 35 });
+    await updateNote(bundle.note.id, { generationState: "generating", generationError: null });
+    set({ isGenerating: true, generationMessage: "正在分章生成完整知识树与两张学习地图…", generationProgress: 20 });
     try {
-      const sourceText = sourceToText(bundle.source);
-      const response = await generateTree(state.provider, apiKey, state.model, sourceText, bundle.profile, bundle.introduction);
-      const tree = response.data as {
-        title: string;
-        summary: string;
-        nodes: Array<{
-          title: string;
-          nodeType: KnowledgeNode["nodeType"];
-          sourceRefs: KnowledgeNode["sourceRefs"];
-          blocks: Array<{ type: ContentBlockType; text: string; sourceRefs: ContentBlock["sourceRefs"] }>;
-          children: any[];
-        }>;
-      };
+      const orderedSources = (bundle.sources?.length ? bundle.sources : [bundle.source!]).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+      const sourceText = orderedSources.map((source, index) => `=== 资料 ${index + 1}：${source.fileName} ===\n${sourceToText(source)}`).join("\n\n");
+      const response = await generateFullLearningPackage(state.provider, apiKey, state.model, { sourceText, profile });
+      const tree = response.data.tree as any;
       const createdAt = iso();
       const nodes: KnowledgeNode[] = [];
       const blocks: ContentBlock[] = [];
-      const walk = (items: typeof tree.nodes, parentId: string | null) => {
-        items.forEach((item, index) => {
-          const nodeId = nanoid();
-          nodes.push({
-            id: nodeId,
-            noteId: bundle.note.id,
-            parentId,
-            order: index,
-            title: item.title,
-            nodeType: item.nodeType,
-            collapsed: false,
-            sourceRefs: item.sourceRefs || [],
-            userModified: false,
-            createdAt,
-            updatedAt: createdAt,
-          });
-          item.blocks.forEach((block, blockIndex) => {
-            blocks.push({
-              id: nanoid(),
-              nodeId,
-              noteId: bundle.note.id,
-              order: blockIndex,
-              type: block.type,
-              text: block.text,
-              sourceRefs: block.sourceRefs || [],
-              userModified: false,
-              createdAt,
-              updatedAt: createdAt,
-            });
-          });
-          if (item.children?.length) walk(item.children, nodeId);
-        });
-      };
+      const walk = (items: any[], parentId: string | null) => items.forEach((item, index) => {
+        const nodeId = nanoid();
+        nodes.push({ id: nodeId, noteId: bundle.note.id, parentId, order: index, title: item.title, nodeType: item.nodeType, collapsed: false, sourceRefs: item.sourceRefs || [], userModified: false, createdAt, updatedAt: createdAt });
+        (item.blocks || []).forEach((block: any, blockIndex: number) => blocks.push({ id: nanoid(), nodeId, noteId: bundle.note.id, order: blockIndex, type: block.type, text: block.text, sourceRefs: block.sourceRefs || [], userModified: false, createdAt, updatedAt: createdAt }));
+        if (item.children?.length) walk(item.children, nodeId);
+      });
       walk(tree.nodes, null);
-      const composedTree = composeLearningOpeningOutline(bundle, bundle.introduction, createdAt, { nodes, blocks });
+      const introduction = { ...response.data.introduction, noteId: bundle.note.id, generatedAt: createdAt, userModified: false } as LearningIntroduction;
+      const composedTree = composeLearningOpeningOutline(bundle, introduction, createdAt, { nodes, blocks });
       const editorDoc = await writeExternalTree(bundle.note.id, composedTree.nodes, composedTree.blocks);
       const nextTitle = tree.title || bundle.note.title;
-      await updateNote(bundle.note.id, { title: nextTitle });
-      await recordAIRequest({
-        id: nanoid(),
-        noteId: bundle.note.id,
-        operation: "knowledge-tree",
-        model: response.model,
-        provider: state.provider,
-        ...response.usage,
-        estimatedCost: response.usage.estimatedCost,
-        currency: response.usage.currency,
-        status: "success",
-        createdAt: iso(),
-      });
+      const finishedAt = iso();
+      const lockedProfile = { ...profile, lockedAt: finishedAt, updatedAt: finishedAt };
+
+      const mapFromAI = (kind: LearningMap["kind"], value: { title: string; nodes: any[] }): LearningMap => {
+        const mapNodes: KnowledgeNode[] = [];
+        const mapBlocks: ContentBlock[] = [];
+        const mapWalk = (items: any[], parentId: string | null) => items.forEach((item, index) => {
+          const nodeId = nanoid();
+          mapNodes.push({ id: nodeId, noteId: bundle.note.id, parentId, order: index, title: item.title, nodeType: item.nodeType || "knowledge", collapsed: false, sourceRefs: item.sourceRefs || [], userModified: false, createdAt: finishedAt, updatedAt: finishedAt });
+          (item.blocks || []).forEach((block: any, blockIndex: number) => mapBlocks.push({ id: nanoid(), nodeId, noteId: bundle.note.id, order: blockIndex, type: block.type, text: block.text, sourceRefs: block.sourceRefs || [], userModified: false, createdAt: finishedAt, updatedAt: finishedAt }));
+          if (item.children?.length) mapWalk(item.children, nodeId);
+        });
+        mapWalk(value.nodes || [], null);
+        return { noteId: bundle.note.id, kind, editorDoc: nodesToTiptap(mapNodes, mapBlocks), nodes: mapNodes, blocks: mapBlocks, syncEnabled: false, revision: 1, createdAt: finishedAt, updatedAt: finishedAt };
+      };
+      const requirementMap = mapFromAI("requirements", response.data.requirements);
+      const questionMap = mapFromAI("questions", response.data.questions);
+      await Promise.all([upsertLearningMap(requirementMap), upsertLearningMap(questionMap), upsertIntroduction(introduction), upsertLearningProfile(lockedProfile)]);
+      await updateNote(bundle.note.id, { title: nextTitle, generationState: "completed", sourcesLockedAt: finishedAt, profileLockedAt: finishedAt, generatedAt: finishedAt, generationError: null });
+      await recordAIRequest({ id: nanoid(), noteId: bundle.note.id, operation: "full-learning-package", model: response.model, provider: state.provider, ...response.usage, estimatedCost: response.usage.estimatedCost, currency: response.usage.currency, status: "success", createdAt: finishedAt });
       set((state) => state.bundle ? {
-        bundle: {
-          ...state.bundle,
-          note: {
-            ...state.bundle.note,
-            title: nextTitle,
-            editorDoc,
-            revision: (state.bundle.note.revision || 0) + 1,
-            updatedAt: iso(),
-          },
-          nodes: composedTree.nodes,
-          blocks: composedTree.blocks,
-        },
-        isGenerating: false,
-        generationMessage: "知识树已生成。",
-        generationProgress: 100,
-        selectedNodeId: composedTree.nodes[0]?.id || null,
-        selectedBlockId: composedTree.blocks[0]?.id || null,
+        bundle: { ...state.bundle, note: { ...state.bundle.note, title: nextTitle, editorDoc, revision: (state.bundle.note.revision || 0) + 1, updatedAt: finishedAt, generationState: "completed", sourcesLockedAt: finishedAt, profileLockedAt: finishedAt, generatedAt: finishedAt }, introduction, profile: lockedProfile, nodes: composedTree.nodes, blocks: composedTree.blocks },
+        isGenerating: false, generationMessage: `知识树和两张学习地图已生成（${response.data.batchCount} 个资料批次）。`, generationProgress: 100,
+        selectedNodeId: composedTree.nodes[0]?.id || null, selectedBlockId: composedTree.blocks[0]?.id || null,
       } : { isGenerating: false });
-      get().showToast("知识树已生成，现在可以直接编辑。", "success");
+      get().showToast("完整知识树、要求式地图和问题式地图已生成。", "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "生成知识树失败。";
-      await recordAIRequest({
-        id: nanoid(),
-        noteId: bundle.note.id,
-        operation: "knowledge-tree",
-        model: get().model,
-        provider: state.provider,
-        inputTokens: 0,
-        outputTokens: 0,
-        estimatedCostUsd: 0,
-        status: "error",
-        error: message,
-        createdAt: iso(),
-      });
+      await recordAIRequest({ id: nanoid(), noteId: bundle.note.id, operation: "full-learning-package", model: get().model, provider: state.provider, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, status: "error", error: message, createdAt: iso() });
+      await updateNote(bundle.note.id, { generationState: "failed", generationError: message });
       set({ isGenerating: false, generationMessage: "", generationProgress: 0 });
       get().showToast(message, "error");
     }

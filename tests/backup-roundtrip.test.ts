@@ -5,7 +5,7 @@ import { createBackupPayload, restoreBackupPayload } from "../src/db/backup";
 
 beforeEach(async () => {
   await db.open();
-  await db.transaction("rw", [db.folders, db.notes, db.sources, db.profiles, db.introductions, db.nodes, db.blocks, db.settings], async () => {
+  await db.transaction("rw", [db.folders, db.notes, db.sources, db.profiles, db.introductions, db.nodes, db.blocks, db.settings, db.learningMaps, db.chatMessages], async () => {
     await Promise.all([
       db.folders.clear(),
       db.notes.clear(),
@@ -15,6 +15,8 @@ beforeEach(async () => {
       db.nodes.clear(),
       db.blocks.clear(),
       db.settings.clear(),
+      db.learningMaps.clear(),
+      db.chatMessages.clear(),
     ]);
   });
 });
@@ -50,6 +52,18 @@ describe("River backup round-trip", () => {
       createdAt,
       updatedAt,
     });
+    await db.learningMaps.add({
+      noteId: "note-1",
+      kind: "questions",
+      editorDoc: { type: "doc", content: [] },
+      nodes: [],
+      blocks: [],
+      syncEnabled: false,
+      revision: 1,
+      createdAt,
+      updatedAt,
+    });
+    await db.chatMessages.add({ id: "chat-1", noteId: "note-1", role: "user", content: "测试问题", mode: "sources", status: "success", createdAt });
 
     const backup = await createBackupPayload();
     await db.nodes.clear();
@@ -67,5 +81,7 @@ describe("River backup round-trip", () => {
       text: "**LCA** 与 ++全生命周期++ 相关。",
       sourceRefs: [{ sourceId: "source-1", slideNumber: 2 }],
     });
+    await expect(db.learningMaps.get(["note-1", "questions"])).resolves.toMatchObject({ syncEnabled: false, revision: 1 });
+    await expect(db.chatMessages.get("chat-1")).resolves.toMatchObject({ content: "测试问题", role: "user" });
   });
 });

@@ -8,16 +8,16 @@ export default defineConfig({
   outputDir: "test-results-master",
   reporter: [["html", { outputFolder: "playwright-report-master", open: "never" }]],
   use: {
-    baseURL: "http://127.0.0.1:5174",
+    baseURL: "http://127.0.0.1:5183",
     channel: "msedge",
     headless: true,
     viewport: { width: 1440, height: 900 },
     video: "on",
   },
   webServer: {
-    command: "pnpm dev",
-    url: "http://127.0.0.1:5174",
-    reuseExistingServer: true,
+    command: "RIVER_E2E_BYPASS_AUTH=1 VITE_E2E_LOCAL_ONLY=1 PORT=8793 RIVER_API_PORT=8793 RIVER_DB_PATH=.data/e2e.sqlite pnpm exec concurrently -k -n web,api \"vite --port 5183 --strictPort\" \"tsx watch server/index.ts\"",
+    url: "http://127.0.0.1:5183",
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });

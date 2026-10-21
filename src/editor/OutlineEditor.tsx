@@ -20,6 +20,7 @@ import {
 
 export interface OutlineEditorProps {
   bundle: NoteBundle;
+  instanceId?: string;
   onChange: (nodes: KnowledgeNode[], blocks: ContentBlock[], editorDoc: EditorDocumentSnapshot) => void | Promise<void>;
   focusMode: boolean;
   onToggleFocus: () => void;
@@ -302,7 +303,8 @@ function docSignature(value: unknown): string {
   });
 }
 
-export function OutlineEditor({ bundle, onChange, focusMode, onToggleFocus, registerFlush, compact = false, readOnly = false }: OutlineEditorProps) {
+export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggleFocus, registerFlush, compact = false, readOnly = false }: OutlineEditorProps) {
+  const editorInstanceId = instanceId || `main:${bundle.note.id}`;
   const editorRef = useRef<Editor | null>(null);
   const changeHandler = useRef(onChange);
   const lastNoteId = useRef<string | null>(null);
@@ -353,7 +355,7 @@ export function OutlineEditor({ bundle, onChange, focusMode, onToggleFocus, regi
       const oldest = selfSignatures.current.values().next().value;
       if (oldest !== undefined) selfSignatures.current.delete(oldest);
     }
-    cacheEditorSnapshot(noteId, editorDoc);
+    cacheEditorSnapshot(noteId, editorDoc, editorInstanceId);
     const { nodes, blocks } = tiptapToNodes(editorDoc as TiptapNode, noteId);
     return changeHandler.current(nodes, blocks, editorDoc);
   };
@@ -493,8 +495,13 @@ export function OutlineEditor({ bundle, onChange, focusMode, onToggleFocus, regi
 
   useEffect(() => {
     if (!editor || !import.meta.env.DEV) return;
+    (window as any).__riverEditors ??= {};
+    (window as any).__riverEditors[editorInstanceId] = editor;
     (window as any).__riverEditor = editor;
-  }, [editor]);
+    return () => {
+      if ((window as any).__riverEditors?.[editorInstanceId] === editor) delete (window as any).__riverEditors[editorInstanceId];
+    };
+  }, [editor, editorInstanceId]);
 
   useEffect(() => () => { void commitPendingChange(); }, []);
 
@@ -506,12 +513,12 @@ export function OutlineEditor({ bundle, onChange, focusMode, onToggleFocus, regi
 
   useEffect(() => {
     registerFlush?.(commitPendingChange);
-    const unregister = registerEditorFlush(commitPendingChange);
+    const unregister = registerEditorFlush(commitPendingChange, editorInstanceId);
     return () => {
       registerFlush?.(null);
       unregister();
     };
-  }, [registerFlush, bundle.note.id]);
+  }, [registerFlush, bundle.note.id, editorInstanceId]);
 
   if (!editor) return <div className="river-empty">正在加载编辑器…</div>;
 
@@ -639,29 +646,17 @@ export function OutlineEditor({ bundle, onChange, focusMode, onToggleFocus, regi
 
   useEffect(() => {
     if (!editor) return;
-    return registerEditorTitleRenamer(renameRootTitle);
-  }, [editor]);
+    return registerEditorTitleRenamer(renameRootTitle, editorInstanceId);
+  }, [editor, editorInstanceId]);
 
   return (
     <div className={`river-outline-editor-shell ${focusMode ? "is-focus" : ""} ${compact ? "is-compact" : ""}`} data-testid="river-outline-shell">
       <div className="river-outline-toolbar">
         <div className="river-chip-row">
-          <button className="river-chip" onClick={() => editor.chain().focus().undo().run()} title="撤销（⌘Z）">撤销</button>
-          <button className="river-chip" onClick={() => editor.chain().focus().redo().run()} title="重做（⇧⌘Z）">重做</button>
-          <select
-            className="river-chip river-heading-select"
-            value={editor.getAttributes("listItem").headingLevel || 0}
-            onChange={(event) => setHeading(Number(event.target.value) as 0 | 1 | 2 | 3 | 4 | 5 | 6)}
-            title="标题层级"
-          >
-            <option value={0}>正文</option>
-            <option value={1}>H1</option>
-            <option value={2}>H2</option>
-            <option value={3}>H3</option>
-            <option value={4}>H4</option>
-            <option value={5}>H5</option>
-            <option value={6}>H6</option>
-          </select>
+          <button className="river-chip river-format-chip" data-testid="river-format-body" onClick={() => setHeading(0)} title="正文">正文</button>
+          <button className="river-chip river-format-chip" data-testid="river-format-h1" onClick={() => setHeading(1)} title="一级标题">H1</button>
+          <button className="river-chip river-format-chip" data-testid="river-format-h2" onClick={() => setHeading(2)} title="二级标题">H2</button>
+          <button className="river-chip river-format-chip" data-testid="river-format-h3" onClick={() => setHeading(3)} title="三级标题">H3</button>
           <button className="river-chip" onClick={() => wrapSelection("**")} title="粉色强调：**文字**">**</button>
           <button className="river-chip" onClick={() => wrapSelection("*")} title="金色斜体：*文字*">*</button>
           <button className="river-chip" onClick={() => wrapSelection("::")} title="黄色标注：::文字::">::</button>

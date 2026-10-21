@@ -16,7 +16,12 @@ interface CachedSnapshot {
   savedAt: number;
 }
 
-function keyFor(noteId: string): string {
+function keyFor(noteId: string, instanceId = "main"): string {
+  const scope = instanceId === "main" ? `main:${noteId}` : instanceId;
+  return `${KEY_PREFIX}${encodeURIComponent(scope)}.${noteId}`;
+}
+
+function legacyKeyFor(noteId: string): string {
   return `${KEY_PREFIX}${noteId}`;
 }
 
@@ -28,26 +33,27 @@ function storage(): Storage | null {
   }
 }
 
-export function cacheEditorSnapshot(noteId: string, editorDoc: EditorDocumentSnapshot): void {
+export function cacheEditorSnapshot(noteId: string, editorDoc: EditorDocumentSnapshot, instanceId = "main"): void {
   const target = storage();
   if (!target) return;
   try {
     const payload: CachedSnapshot = { editorDoc, savedAt: Date.now() };
-    target.setItem(keyFor(noteId), JSON.stringify(payload));
+    target.setItem(keyFor(noteId, instanceId), JSON.stringify(payload));
+    if (instanceId === "main") target.setItem(legacyKeyFor(noteId), JSON.stringify(payload));
   } catch {
     // Quota or privacy-mode failures must not interrupt editing.
   }
 }
 
-export function readEditorSnapshot(noteId: string): EditorDocumentSnapshot | null {
-  return readEditorSnapshotRecord(noteId)?.editorDoc ?? null;
+export function readEditorSnapshot(noteId: string, instanceId = "main"): EditorDocumentSnapshot | null {
+  return readEditorSnapshotRecord(noteId, instanceId)?.editorDoc ?? null;
 }
 
-export function readEditorSnapshotRecord(noteId: string): CachedSnapshot | null {
+export function readEditorSnapshotRecord(noteId: string, instanceId = "main"): CachedSnapshot | null {
   const target = storage();
   if (!target) return null;
   try {
-    const raw = target.getItem(keyFor(noteId));
+    const raw = target.getItem(keyFor(noteId, instanceId)) || (instanceId === "main" ? target.getItem(legacyKeyFor(noteId)) : null);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<CachedSnapshot>;
     const doc = parsed.editorDoc;
@@ -66,15 +72,16 @@ function sameDocument(left: unknown, right: unknown): boolean {
 }
 
 /** Clears the cache only when it still represents the snapshot just saved. */
-export function clearEditorSnapshot(noteId: string, savedDoc?: EditorDocumentSnapshot): void {
+export function clearEditorSnapshot(noteId: string, savedDoc?: EditorDocumentSnapshot, instanceId = "main"): void {
   const target = storage();
   if (!target) return;
   try {
     if (savedDoc) {
-      const cached = readEditorSnapshot(noteId);
+      const cached = readEditorSnapshot(noteId, instanceId);
       if (cached && !sameDocument(cached, savedDoc)) return;
     }
-    target.removeItem(keyFor(noteId));
+    target.removeItem(keyFor(noteId, instanceId));
+    if (instanceId === "main") target.removeItem(legacyKeyFor(noteId));
   } catch {
     // A leftover entry is harmless: recovery compares it with IndexedDB.
   }

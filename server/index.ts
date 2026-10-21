@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { clearedSessionCookie, RiverPersistence, sessionCookie, type AuthUser } from "./persistence";
 import {
   DEFAULT_MODEL,
   DEEPSEEK_MODEL_ID,
@@ -13,6 +14,8 @@ import {
   DEEPSEEK_PRICING,
   SUPPORTED_MODELS,
   expandNode,
+  generateChatAnswer,
+  generateCompleteLearningPackage,
   generateKnowledgeTree,
   generateLearningOpening,
   regenerateBlock,
@@ -21,13 +24,92 @@ import {
 } from "./ai";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const port = Number(process.env.PORT || 8788);
+const port = Number(process.env.PORT || 8792);
 const CC_SWITCH_OPENCODE_PROVIDER_ID = "fcb21a00-52ef-45d6-9219-a19b181547be";
 
 export function createApp() {
   const app = express();
+  const persistence = new RiverPersistence();
 
-  app.use(express.json({ limit: "3mb" }));
+  app.use(express.json({ limit: "50mb" }));
+
+function cookieValue(req: express.Request, name: string): string | null {
+  const raw = req.header("cookie") || "";
+  const item = raw.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
+  return item ? decodeURIComponent(item.slice(name.length + 1)) : null;
+}
+
+function currentUser(req: express.Request): AuthUser | null {
+  if (process.env.RIVER_E2E_BYPASS_AUTH === "1") return persistence.firstAdmin();
+  return persistence.userForSession(cookieValue(req, "river_session"));
+}
+
+function requireUser(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const user = currentUser(req);
+  if (!user) return sendError(res, new Error("请先登录 River。"), 401);
+  (req as express.Request & { riverUser?: AuthUser }).riverUser = user;
+  next();
+}
+
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const user = currentUser(req);
+  if (!user) return sendError(res, new Error("请先登录 River。"), 401);
+  if (user.role !== "admin") return sendError(res, new Error("需要管理员权限。"), 403);
+  (req as express.Request & { riverUser?: AuthUser }).riverUser = user;
+  next();
+}
+
+app.get("/api/auth/me", (req, res) => {
+  const user = currentUser(req);
+  if (!user) return res.status(401).json({ authenticated: false });
+  res.json({ authenticated: true, user });
+});
+
+app.post("/api/auth/login", (req, res) => {
+  const username = String(req.body?.username || "");
+  const password = String(req.body?.password || "");
+  const user = persistence.authenticate(username, password);
+  if (!user) return sendError(res, new Error("用户名或密码不正确。"), 401);
+  const token = persistence.createSession(user.id);
+  res.setHeader("Set-Cookie", sessionCookie(token));
+  res.json({ authenticated: true, user });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  persistence.deleteSession(cookieValue(req, "river_session"));
+  res.setHeader("Set-Cookie", clearedSessionCookie);
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/users", requireAdmin, (_req, res) => {
+  res.json({ users: persistence.listUsers() });
+});
+
+app.post("/api/admin/users", requireAdmin, (req, res) => {
+  try {
+    const user = persistence.createUser(String(req.body?.username || ""), String(req.body?.password || ""), "user");
+    res.status(201).json({ user });
+  } catch (error) {
+    sendError(res, error, 400);
+  }
+});
+
+app.get("/api/workspace", requireUser, (req, res) => {
+  const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
+  res.json(persistence.getWorkspace(user.id));
+});
+
+app.put("/api/workspace", requireUser, (req, res) => {
+  try {
+    const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
+    const expectedRevision = Number(req.body?.expectedRevision);
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new Error("expectedRevision 无效。");
+    const result = persistence.putWorkspace(user.id, expectedRevision, req.body?.payload);
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    sendError(res, error, 400);
+  }
+});
 
 const requestBuckets = new Map<string, { count: number; resetAt: number }>();
 function rateLimit(key: string, limit = 30, windowMs = 10 * 60 * 1000) {
@@ -118,7 +200,7 @@ function sendError(res: express.Response, error: unknown, status = 500) {
 app.get("/api/health", (req, res) => {
   res.json({
     ok: true,
-    service: "river-v0.1",
+    service: "riverv0.2",
     defaultModel: DEFAULT_MODEL,
     supportedModels: SUPPORTED_MODELS,
     ccSwitchOpenCodeConfigured: isLoopbackRequest(req) && Boolean(readCcSwitchOpenCodeKey()),
@@ -184,6 +266,51 @@ app.post("/api/ai/tree", async (req, res) => {
       sourceText: String(req.body?.sourceText || ""),
       profile: req.body?.profile,
       introduction: req.body?.introduction,
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post("/api/ai/full-package", requireUser, async (req, res) => {
+  const apiKey = getApiKey(req);
+  const provider = getProvider(req);
+  if (!apiKey) return sendError(res, new Error("缺少 API Key。"), 400);
+  if (!rateLimit(`full-package:${apiKey.slice(-8)}`, 10)) return sendError(res, new Error("请求过于频繁，请稍后再试。"), 429);
+  try {
+    const result = await generateCompleteLearningPackage({
+      apiKey,
+      provider,
+      model: req.body?.model,
+      sessionId: getAiSessionId(req),
+      sourceText: String(req.body?.sourceText || ""),
+      profile: req.body?.profile,
+      introduction: req.body?.introduction,
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post("/api/ai/chat", requireUser, async (req, res) => {
+  const apiKey = getApiKey(req);
+  const provider = getProvider(req);
+  if (!apiKey) return sendError(res, new Error("缺少 API Key。"), 400);
+  if (!rateLimit(`chat:${apiKey.slice(-8)}`, 80)) return sendError(res, new Error("请求过于频繁，请稍后再试。"), 429);
+  try {
+    const result = await generateChatAnswer({
+      apiKey,
+      provider,
+      model: req.body?.model,
+      sessionId: getAiSessionId(req),
+      question: String(req.body?.question || ""),
+      mode: req.body?.mode === "expanded" ? "expanded" : "sources",
+      sourceText: String(req.body?.sourceText || ""),
+      treeText: String(req.body?.treeText || ""),
+      personalAnswers: String(req.body?.personalAnswers || ""),
+      history: Array.isArray(req.body?.history) ? req.body.history : [],
     });
     res.json(result);
   } catch (error) {
@@ -268,7 +395,8 @@ app.post("/api/ai/expand", async (req, res) => {
 
 const entryFile = process.argv[1] ? path.resolve(process.argv[1]) : "";
 if (entryFile === fileURLToPath(import.meta.url)) {
-  createApp().listen(port, "127.0.0.1", () => {
-    console.log(`River API listening on http://127.0.0.1:${port}`);
+  const host = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+  createApp().listen(port, host, () => {
+    console.log(`River API listening on http://${host}:${port}`);
   });
 }

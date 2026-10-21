@@ -2,7 +2,7 @@ import { test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
-test.use({ video: { mode: "on", size: { width: 1280, height: 720 } }, viewport: { width: 1280, height: 800 }, launchOptions: { slowMo: 0 } });
+test.use({ video: { mode: "on", size: { width: 1280, height: 720 } }, viewport: { width: 1280, height: 800 }, launchOptions: { slowMo: 0 }, trace: "off" });
 
 const LOG = "/Users/river/Documents/Codex/2026-08-24/hi/deliverables/RIVER_R6_20261019/raw/master-timeline.json";
 
@@ -104,7 +104,7 @@ test("R6 master recording", async ({ page, context }) => {
   await mark("D1 多行粘贴", marks, started);
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
-  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:5174" });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:5183" });
   const paste = "第一行：获取阶段\n第二行：制造阶段\n第三行：使用阶段\n第四行：处置阶段";
   await page.evaluate((text) => navigator.clipboard.writeText(text), paste);
   await page.keyboard.press("Meta+v");

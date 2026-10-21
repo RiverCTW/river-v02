@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: river-v02
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: river-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: RIVER_DB_PATH
+        value: /data/river-v0.2.sqlite
+      - key: RIVER_ADMIN_USERNAME
+        sync: false
+      - key: RIVER_ADMIN_PASSWORD
+        sync: false

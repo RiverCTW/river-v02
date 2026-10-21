@@ -66,3 +66,17 @@ export async function simplifyBlock(provider: string, apiKey: string, model: str
 export async function expandNode(provider: string, apiKey: string, model: string, input: Record<string, unknown>): Promise<AIResponse<{ explanation: string; children: Array<{ title: string; blocks: Array<{ type: any; text: string; sourceRefs: any[] }> }> }>> {
   return post("/ai/expand", provider, apiKey, { model, ...input });
 }
+
+export async function generateFullLearningPackage(provider: string, apiKey: string, model: string, input: Record<string, unknown>): Promise<AIResponse<{
+  introduction: any;
+  tree: any;
+  requirements: { title: string; nodes: any[] };
+  questions: { title: string; nodes: any[] };
+  batchCount: number;
+}>> {
+  return post("/ai/full-package", provider, apiKey, { model, ...input });
+}
+
+export async function generateChatAnswer(provider: string, apiKey: string, model: string, input: Record<string, unknown>): Promise<AIResponse<{ answer: string; citations: string[] }>> {
+  return post("/ai/chat", provider, apiKey, { model, ...input });
+}

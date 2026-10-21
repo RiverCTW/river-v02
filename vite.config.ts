@@ -6,11 +6,11 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     allowedHosts: [".loca.lt", ".lhr.life"],
-    port: 5174,
+    port: 5182,
     strictPort: false,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8788",
+        target: `http://127.0.0.1:${process.env.RIVER_API_PORT || "8792"}`,
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on("proxyReq", (proxyReq, req) => {

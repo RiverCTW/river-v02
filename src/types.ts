@@ -1,4 +1,15 @@
 export type UIStyle = "effie" | "notability";
+export type UserRole = "admin" | "user";
+export type GenerationState = "draft" | "sources_ready" | "generating" | "completed" | "failed";
+export type LearningMapKind = "requirements" | "questions";
+export type ChatAnswerMode = "sources" | "expanded";
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  role: UserRole;
+  createdAt: string;
+}
 
 export type AIProvider = "openai" | "deepseek" | "opencode-go";
 
@@ -72,6 +83,8 @@ export interface Folder {
   order: number;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
+  deletedRootId?: string | null;
 }
 
 export interface Note {
@@ -84,6 +97,15 @@ export interface Note {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
+  favorite?: boolean;
+  pinned?: boolean;
+  lastOpenedAt?: string;
+  generationState?: GenerationState;
+  sourcesLockedAt?: string | null;
+  profileLockedAt?: string | null;
+  generatedAt?: string | null;
+  copiedFromNoteId?: string | null;
+  generationError?: string | null;
 }
 
 export interface SourcePage {
@@ -111,6 +133,8 @@ export interface SourceDocument {
   parseError?: string;
   textCharCount: number;
   createdAt: string;
+  order?: number;
+  sha256?: string;
   originalBlob?: Blob;
   originalBase64?: string;
   originalMimeType?: string;
@@ -124,9 +148,33 @@ export interface LearningProfile {
   customLevel?: string;
   purpose: LearningPurpose;
   customPurpose?: string;
-  goalStyle: GoalStyle;
+  goalStyle?: GoalStyle;
   createdAt: string;
   updatedAt: string;
+  lockedAt?: string | null;
+}
+
+export interface LearningMap {
+  noteId: string;
+  kind: LearningMapKind;
+  editorDoc: EditorDocumentSnapshot;
+  nodes: KnowledgeNode[];
+  blocks: ContentBlock[];
+  syncEnabled: boolean;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  noteId: string;
+  role: "user" | "assistant";
+  content: string;
+  mode: ChatAnswerMode;
+  status: "success" | "error";
+  error?: string;
+  createdAt: string;
 }
 
 export interface LearningMapSection {
@@ -207,6 +255,7 @@ export interface AppSetting<T = unknown> {
 export interface NoteBundle {
   note: Note;
   source?: SourceDocument;
+  sources?: SourceDocument[];
   profile?: LearningProfile;
   introduction?: LearningIntroduction;
   nodes: KnowledgeNode[];
