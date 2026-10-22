@@ -70,6 +70,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     if (enabled) {
       setDraftProvider("opencode-go");
       setDraftModel("deepseek-v4.1-flash");
+      await setProvider("opencode-go");
     }
   };
 
