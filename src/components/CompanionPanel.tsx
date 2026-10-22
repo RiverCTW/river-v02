@@ -70,7 +70,7 @@ export function CompanionPanel({ noteId }: { noteId: string }) {
       <div className="river-companion-workarea">
         <ResizableSplit
           direction="vertical"
-          storageKey={`river.split.companion.${noteId}`}
+          storageKey={`river.split.companion.v3.${noteId}`}
           defaultPercent={75}
           minFirst={260}
           minSecond={180}

@@ -18,6 +18,13 @@ export function ResizableSplit({ direction, storageKey, defaultPercent, minFirst
 
   useEffect(() => { localStorage.setItem(storageKey, String(percent)); }, [percent, storageKey]);
 
+  useEffect(() => {
+    const correct = () => setPercent((current) => clamp(current));
+    correct();
+    window.addEventListener("resize", correct);
+    return () => window.removeEventListener("resize", correct);
+  }, [direction, minFirst, minSecond]);
+
   const clamp = (next: number) => {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return next;

@@ -67,14 +67,38 @@ export async function expandNode(provider: string, apiKey: string, model: string
   return post("/ai/expand", provider, apiKey, { model, ...input });
 }
 
-export async function generateFullLearningPackage(provider: string, apiKey: string, model: string, input: Record<string, unknown>): Promise<AIResponse<{
+export async function generateFullLearningPackage(provider: string, apiKey: string, model: string, input: Record<string, unknown>, onProgress?: (progress: number, message: string) => void): Promise<AIResponse<{
   introduction: any;
   tree: any;
   requirements: { title: string; nodes: any[] };
   questions: { title: string; nodes: any[] };
   batchCount: number;
 }>> {
-  return post("/ai/full-package", provider, apiKey, { model, ...input });
+  const usesCcSwitch = provider === "opencode-go" && apiKey === CC_SWITCH_LOCAL_KEY;
+  const startResponse = await fetch("/api/ai/full-package", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-ai-provider": provider,
+      "x-ai-auth-source": usesCcSwitch ? "cc-switch" : "manual",
+      ...(usesCcSwitch ? {} : { "x-ai-api-key": apiKey }),
+      ...(provider === "opencode-go" ? { "x-opencode-session": openCodeSessionId } : {}),
+    },
+    body: JSON.stringify({ model, ...input }),
+  });
+  const started = await startResponse.json().catch(() => ({}));
+  if (!startResponse.ok) throw new Error(started?.error?.message || `请求失败：HTTP ${startResponse.status}`);
+  const jobId = String(started.jobId || "");
+  if (!jobId) throw new Error("服务端没有返回生成任务 ID。");
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const response = await fetch(`/api/ai/full-package/${encodeURIComponent(jobId)}`, { credentials: "same-origin" });
+    const job = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(job?.error?.message || `请求失败：HTTP ${response.status}`);
+    onProgress?.(Number(job.progress || 0), String(job.message || "正在生成…"));
+    if (job.status === "completed") return job.result as AIResponse<any>;
+    if (job.status === "failed") throw new Error(job.error || "生成失败。");
+  }
 }
 
 export async function generateChatAnswer(provider: string, apiKey: string, model: string, input: Record<string, unknown>): Promise<AIResponse<{ answer: string; citations: string[] }>> {

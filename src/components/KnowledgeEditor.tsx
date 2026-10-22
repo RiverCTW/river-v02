@@ -57,10 +57,10 @@ export function KnowledgeEditor() {
     <div className="river-editor-layout river-v02-note-layout">
       <ResizableSplit
         direction="horizontal"
-        storageKey={`river.split.main.${bundle.note.id}`}
+        storageKey={`river.split.main.v3.${bundle.note.id}`}
         defaultPercent={67}
-        minFirst={520}
-        minSecond={360}
+        minFirst={560}
+        minSecond={420}
         first={main}
         second={<CompanionPanel noteId={bundle.note.id} />}
       />

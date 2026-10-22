@@ -943,7 +943,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const orderedSources = (bundle.sources?.length ? bundle.sources : [bundle.source!]).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
       const sourceText = orderedSources.map((source, index) => `=== 资料 ${index + 1}：${source.fileName} ===\n${sourceToText(source)}`).join("\n\n");
-      const response = await generateFullLearningPackage(state.provider, apiKey, state.model, { sourceText, profile });
+      const response = await generateFullLearningPackage(state.provider, apiKey, state.model, { sourceText, profile }, (progress, message) => {
+        set({ generationProgress: progress, generationMessage: message });
+      });
       const tree = response.data.tree as any;
       const createdAt = iso();
       const nodes: KnowledgeNode[] = [];

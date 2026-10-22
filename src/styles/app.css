@@ -166,6 +166,8 @@ button {
   color: light-dark(#73706a, #9aa2a7);
   font-size: 9px;
   line-height: 1.2;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .river-modal-backdrop {
@@ -1626,3 +1628,22 @@ button {
 .river-account-row span { color: light-dark(#77736d, #9ca5a9); font-size: 9px; }
 .river-test-open { position: absolute !important; top: 0 !important; left: 0 !important; z-index: 8 !important; width: 2px !important; height: 2px !important; padding: 0 !important; margin: 0 !important; overflow: visible !important; border: 0 !important; background: transparent !important; color: transparent !important; font-size: 0 !important; cursor: pointer !important; }
 .river-test-delete { position: absolute !important; top: 0 !important; left: 3px !important; z-index: 9 !important; width: 2px !important; height: 2px !important; padding: 0 !important; margin: 0 !important; border: 0 !important; background: transparent !important; color: transparent !important; font-size: 0 !important; cursor: pointer !important; }
+
+@media (max-width: 1050px) {
+  .river-resizable-split.is-horizontal {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: minmax(0, 58%) 8px minmax(0, 42%) !important;
+  }
+
+  .river-resizable-split.is-horizontal > .river-split-divider {
+    pointer-events: none;
+  }
+
+  .river-resizable-split.is-horizontal > .river-split-divider::after {
+    display: none;
+  }
+
+  .river-companion-panel {
+    width: 100%;
+  }
+}

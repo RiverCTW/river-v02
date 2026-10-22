@@ -375,8 +375,11 @@ export async function generateCompleteLearningPackage(input: {
   sourceText: string;
   profile: unknown;
   introduction?: unknown;
+  onProgress?: (progress: number, message: string) => void;
 }) {
+  const report = (progress: number, message: string) => input.onProgress?.(progress, message);
   const profile = learningProfileSchema.parse(input.profile);
+  report(8, "正在生成学习开场…");
   const introductionResponse = input.introduction
     ? null
     : await generateLearningOpening({
@@ -388,12 +391,14 @@ export async function generateCompleteLearningPackage(input: {
       profile,
     });
   const introduction = introductionResponse?.data || input.introduction as z.infer<typeof learningIntroductionSchema>;
+  report(22, "正在规划资料分章…");
   const batches = splitSourceBatches(input.sourceText);
   const trees: z.infer<typeof knowledgeTreeSchema>[] = [];
   const usages: UsageSummary[] = introductionResponse ? [introductionResponse.usage] : [];
   let model = input.model || defaultModelForProvider(input.provider);
 
   for (let index = 0; index < batches.length; index += 1) {
+    report(24 + Math.round((index / batches.length) * 32), `正在生成知识树第 ${index + 1}/${batches.length} 批…`);
     const response = await generateKnowledgeTree({
       ...input,
       sourceText: batches[index],
@@ -415,6 +420,7 @@ export async function generateCompleteLearningPackage(input: {
     nodes: trees.flatMap((item) => item.nodes),
   };
   const treeContext = JSON.stringify(tree).slice(0, 60_000);
+  report(62, "知识树已生成，正在生成两张学习地图…");
   const profileContext = [
     `学习意图：${profile.intent}`,
     `当前程度：${profile.level}${profile.customLevel ? `（${profile.customLevel}）` : ""}`,
@@ -444,6 +450,7 @@ export async function generateCompleteLearningPackage(input: {
   });
 
   const [requirements, questions] = await Promise.all([mapRequest("requirements"), mapRequest("questions")]);
+  report(96, "正在校验并整理生成结果…");
   const usage = [...usages, requirements.usage, questions.usage].reduce<UsageSummary>((sum, item) => ({
     inputTokens: sum.inputTokens + item.inputTokens,
     outputTokens: sum.outputTokens + item.outputTokens,

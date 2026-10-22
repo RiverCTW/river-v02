@@ -112,6 +112,15 @@ app.put("/api/workspace", requireUser, (req, res) => {
 });
 
 const requestBuckets = new Map<string, { count: number; resetAt: number }>();
+const generationJobs = new Map<string, {
+  userId: string;
+  status: "running" | "completed" | "failed";
+  progress: number;
+  message: string;
+  result?: unknown;
+  error?: string;
+  updatedAt: number;
+}>();
 function rateLimit(key: string, limit = 30, windowMs = 10 * 60 * 1000) {
   const now = Date.now();
   const bucket = requestBuckets.get(key);
@@ -276,10 +285,12 @@ app.post("/api/ai/tree", async (req, res) => {
 app.post("/api/ai/full-package", requireUser, async (req, res) => {
   const apiKey = getApiKey(req);
   const provider = getProvider(req);
+  const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
   if (!apiKey) return sendError(res, new Error("缺少 API Key。"), 400);
   if (!rateLimit(`full-package:${apiKey.slice(-8)}`, 10)) return sendError(res, new Error("请求过于频繁，请稍后再试。"), 429);
-  try {
-    const result = await generateCompleteLearningPackage({
+  const jobId = randomUUID();
+  generationJobs.set(jobId, { userId: user.id, status: "running", progress: 3, message: "正在准备生成任务…", updatedAt: Date.now() });
+  void generateCompleteLearningPackage({
       apiKey,
       provider,
       model: req.body?.model,
@@ -287,11 +298,22 @@ app.post("/api/ai/full-package", requireUser, async (req, res) => {
       sourceText: String(req.body?.sourceText || ""),
       profile: req.body?.profile,
       introduction: req.body?.introduction,
+      onProgress: (progress, message) => generationJobs.set(jobId, { userId: user.id, status: "running", progress, message, updatedAt: Date.now() }),
+    }).then((result) => {
+      generationJobs.set(jobId, { userId: user.id, status: "completed", progress: 100, message: "知识树和两张学习地图已生成。", result, updatedAt: Date.now() });
+    }).catch((error) => {
+      generationJobs.set(jobId, { userId: user.id, status: "failed", progress: 0, message: "生成失败。", error: error instanceof Error ? error.message : String(error), updatedAt: Date.now() });
     });
-    res.json(result);
-  } catch (error) {
-    sendError(res, error);
-  }
+  res.status(202).json({ jobId, status: "running", progress: 3, message: "正在准备生成任务…" });
+});
+
+app.get("/api/ai/full-package/:jobId", requireUser, (req, res) => {
+  const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
+  const jobId = String(req.params.jobId);
+  const job = generationJobs.get(jobId);
+  if (!job || job.userId !== user.id) return sendError(res, new Error("生成任务不存在或已过期。"), 404);
+  if (Date.now() - job.updatedAt > 30 * 60 * 1000 && job.status !== "running") generationJobs.delete(jobId);
+  res.json({ jobId, status: job.status, progress: job.progress, message: job.message, result: job.result, error: job.error });
 });
 
 app.post("/api/ai/chat", requireUser, async (req, res) => {
