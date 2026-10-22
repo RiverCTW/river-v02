@@ -291,6 +291,10 @@ button {
   background: #b55252;
 }
 
+.river-status-dot.success {
+  background: #2f8b6f;
+}
+
 .river-status-dot.loading {
   background: #c99a2e;
   animation: river-pulse 1s infinite ease-in-out;

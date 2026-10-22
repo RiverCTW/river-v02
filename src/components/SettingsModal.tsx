@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { createBackupPayload } from "../db/backup";
 import type { AIProvider } from "../types";
@@ -47,6 +47,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [draftCcSwitchKeyEnabled, setDraftCcSwitchKeyEnabled] = useState(ccSwitchKeyEnabled);
   const [draftModel, setDraftModel] = useState(model);
   const [busy, setBusy] = useState(false);
+  const [ccSwitchAvailable, setCcSwitchAvailable] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const info = providerLabels[draftProvider];
   const currentKey = draftProvider === "deepseek"
@@ -55,6 +56,22 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       ? draftOpenCodeGoKey
       : draftOpenAIKey;
   const usesLocalCcSwitchKey = draftProvider === "opencode-go" && draftCcSwitchKeyEnabled;
+
+  useEffect(() => {
+    fetch("/api/health")
+      .then((response) => response.json())
+      .then((health) => setCcSwitchAvailable(Boolean(health?.ccSwitchOpenCodeConfigured)))
+      .catch(() => setCcSwitchAvailable(false));
+  }, []);
+
+  const setLocalCcSwitch = async (enabled: boolean) => {
+    setDraftCcSwitchKeyEnabled(enabled);
+    await setCcSwitchKeyEnabled(enabled);
+    if (enabled) {
+      setDraftProvider("opencode-go");
+      setDraftModel("deepseek-v4.1-flash");
+    }
+  };
 
   const applyDraft = async () => {
     setOpenAIKey(draftOpenAIKey);
@@ -95,7 +112,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             <div className="river-chip-row">
               <button className={`river-chip ${draftProvider === "openai" ? "selected" : ""}`} onClick={() => { setDraftProvider("openai"); setDraftModel("gpt-6-luna"); }}>OpenAI — GPT-6 Luna</button>
               <button className={`river-chip ${draftProvider === "deepseek" ? "selected" : ""}`} onClick={() => { setDraftProvider("deepseek"); setDraftModel("deepseek-v4.1-flash"); }}>卡扣 AI — DeepSeek V4.1 Flash</button>
-              <button className={`river-chip ${draftProvider === "opencode-go" ? "selected" : ""}`} onClick={() => { setDraftProvider("opencode-go"); setDraftModel("deepseek-v4.1-flash"); }}>OpenCode Go</button>
+              <button className={`river-chip ${draftProvider === "opencode-go" ? "selected" : ""}`} onClick={() => {
+                setDraftProvider("opencode-go");
+                setDraftModel("deepseek-v4.1-flash");
+                if (ccSwitchAvailable) void setLocalCcSwitch(true);
+              }}>OpenCode Go</button>
             </div>
             <div className="river-muted" style={{ fontSize: 10 }}>当前选择：{info.name}。更换供应商后，后续 AI 请求会真实使用该供应商。</div>
           </div>
@@ -106,11 +127,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 <input
                   type="checkbox"
                   checked={draftCcSwitchKeyEnabled}
-                  onChange={(event) => setDraftCcSwitchKeyEnabled(event.target.checked)}
+                  onChange={(event) => void setLocalCcSwitch(event.target.checked)}
                 />
                 使用 cc-switch 中当前 OpenCode Go 的本机 Key
               </label>
             )}
+            {draftProvider === "opencode-go" && <div className={`river-status-line ${ccSwitchAvailable ? "is-ok" : ""}`} style={{ marginBottom: 6 }}><span className={`river-status-dot ${ccSwitchAvailable ? "success" : "error"}`} />{ccSwitchAvailable ? "本机已检测到 cc-switch OpenCode Go Key。勾选后无需填写 Key。" : "当前设备未检测到可用 cc-switch Key，请填写手动 Key。"}</div>}
             <label htmlFor="river-ai-key">{draftProvider === "deepseek" ? "卡扣 AI API Key" : draftProvider === "opencode-go" ? "手动 OpenCode Go API Key（可选）" : "OpenAI API Key"}</label>
             <input
               id="river-ai-key"
