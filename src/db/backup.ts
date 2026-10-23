@@ -1,6 +1,7 @@
 import type { SourceDocument } from "../types";
 import { db } from "./database";
 import { tiptapToNodes } from "../editor/convert";
+import { nanoid } from "nanoid";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
@@ -81,9 +82,24 @@ export async function restoreBackupPayload(data: any): Promise<void> {
     const providedNodes = data.nodes || [];
     const providedBlocks = data.blocks || [];
     const nodeNoteIds = new Set(providedNodes.map((node: any) => node.noteId));
+    const usedNodeIds = new Set<string>(providedNodes.map((node: any) => node.id));
+    const usedBlockIds = new Set<string>(providedBlocks.map((block: any) => block.id));
     for (const note of notes) {
       if (!note.editorDoc || nodeNoteIds.has(note.id)) continue;
       const derived = tiptapToNodes(note.editorDoc, note.id);
+      const nodeIdMap = new Map<string, string>();
+      for (const node of derived.nodes) {
+        const originalId = node.id;
+        if (usedNodeIds.has(node.id)) node.id = nanoid();
+        usedNodeIds.add(node.id);
+        nodeIdMap.set(originalId, node.id);
+        if (node.parentId) node.parentId = nodeIdMap.get(node.parentId) || node.parentId;
+      }
+      for (const block of derived.blocks) {
+        if (usedBlockIds.has(block.id)) block.id = nanoid();
+        usedBlockIds.add(block.id);
+        block.nodeId = nodeIdMap.get(block.nodeId) || block.nodeId;
+      }
       providedNodes.push(...derived.nodes);
       providedBlocks.push(...derived.blocks);
       nodeNoteIds.add(note.id);
