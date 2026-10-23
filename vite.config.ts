@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: "0.0.0.0",
-    allowedHosts: [".loca.lt", ".lhr.life"],
+    allowedHosts: [".loca.lt", ".lhr.life", ".trycloudflare.com"],
     port: 5182,
     strictPort: false,
     proxy: {
