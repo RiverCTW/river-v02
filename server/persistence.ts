@@ -210,6 +210,37 @@ export class RiverPersistence {
   }
 }
 
+export interface PersistenceAdapter {
+  createUser(username: string, password: string, role?: UserRole): Promise<AuthUser>;
+  authenticate(username: string, password: string): Promise<AuthUser | null>;
+  createSession(userId: string): Promise<string>;
+  userForSession(token: string | null): Promise<AuthUser | null>;
+  deleteSession(token: string | null): Promise<void>;
+  listUsers(): Promise<AuthUser[]>;
+  firstAdmin(): Promise<AuthUser | null>;
+  getWorkspace(userId: string): Promise<{ revision: number; payload: unknown | null; updatedAt: string | null }>;
+  putWorkspace(userId: string, expectedRevision: number, payload: unknown): Promise<{ revision: number; updatedAt: string }>;
+}
+
+export async function createPersistence(): Promise<PersistenceAdapter> {
+  if (process.env.DATABASE_URL) {
+    const { PostgresPersistence } = await import("./persistence-postgres");
+    return PostgresPersistence.create();
+  }
+  const sqlite = new RiverPersistence();
+  return {
+    createUser: async (...args) => sqlite.createUser(...args),
+    authenticate: async (...args) => sqlite.authenticate(...args),
+    createSession: async (...args) => sqlite.createSession(...args),
+    userForSession: async (...args) => sqlite.userForSession(...args),
+    deleteSession: async (token) => sqlite.deleteSession(token),
+    listUsers: async () => sqlite.listUsers(),
+    firstAdmin: async () => sqlite.firstAdmin(),
+    getWorkspace: async (userId) => sqlite.getWorkspace(userId),
+    putWorkspace: async (userId, expectedRevision, payload) => sqlite.putWorkspace(userId, expectedRevision, payload),
+  };
+}
+
 export function sessionCookie(token: string) {
   const secure = process.env.NODE_ENV === "production" && process.env.RIVER_INSECURE_COOKIE !== "1" ? "; Secure" : "";
   return `river_session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${sessionMaxAgeSeconds}${secure}`;

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { clearedSessionCookie, RiverPersistence, sessionCookie, type AuthUser } from "./persistence";
+import { clearedSessionCookie, createPersistence, sessionCookie, type AuthUser } from "./persistence";
 import {
   DEFAULT_MODEL,
   DEEPSEEK_MODEL_ID,
@@ -29,7 +29,7 @@ const CC_SWITCH_OPENCODE_PROVIDER_ID = "fcb21a00-52ef-45d6-9219-a19b181547be";
 
 export function createApp() {
   const app = express();
-  const persistence = new RiverPersistence();
+  const persistencePromise = createPersistence();
 
   app.use(express.json({ limit: "50mb" }));
 
@@ -39,72 +39,79 @@ function cookieValue(req: express.Request, name: string): string | null {
   return item ? decodeURIComponent(item.slice(name.length + 1)) : null;
 }
 
-function currentUser(req: express.Request): AuthUser | null {
+async function currentUser(req: express.Request): Promise<AuthUser | null> {
+  const persistence = await persistencePromise;
   if (process.env.RIVER_E2E_BYPASS_AUTH === "1") return persistence.firstAdmin();
   return persistence.userForSession(cookieValue(req, "river_session"));
 }
 
-function requireUser(req: express.Request, res: express.Response, next: express.NextFunction) {
-  const user = currentUser(req);
+async function requireUser(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const user = await currentUser(req);
   if (!user) return sendError(res, new Error("请先登录 River。"), 401);
   (req as express.Request & { riverUser?: AuthUser }).riverUser = user;
   next();
 }
 
-function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
-  const user = currentUser(req);
+async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const user = await currentUser(req);
   if (!user) return sendError(res, new Error("请先登录 River。"), 401);
   if (user.role !== "admin") return sendError(res, new Error("需要管理员权限。"), 403);
   (req as express.Request & { riverUser?: AuthUser }).riverUser = user;
   next();
 }
 
-app.get("/api/auth/me", (req, res) => {
-  const user = currentUser(req);
+app.get("/api/auth/me", async (req, res) => {
+  const user = await currentUser(req);
   if (!user) return res.status(401).json({ authenticated: false });
   res.json({ authenticated: true, user });
 });
 
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
+  const persistence = await persistencePromise;
   const username = String(req.body?.username || "");
   const password = String(req.body?.password || "");
-  const user = persistence.authenticate(username, password);
+  const user = await persistence.authenticate(username, password);
   if (!user) return sendError(res, new Error("用户名或密码不正确。"), 401);
-  const token = persistence.createSession(user.id);
+  const token = await persistence.createSession(user.id);
   res.setHeader("Set-Cookie", sessionCookie(token));
   res.json({ authenticated: true, user });
 });
 
-app.post("/api/auth/logout", (req, res) => {
-  persistence.deleteSession(cookieValue(req, "river_session"));
+app.post("/api/auth/logout", async (req, res) => {
+  const persistence = await persistencePromise;
+  await persistence.deleteSession(cookieValue(req, "river_session"));
   res.setHeader("Set-Cookie", clearedSessionCookie);
   res.json({ ok: true });
 });
 
-app.get("/api/admin/users", requireAdmin, (_req, res) => {
-  res.json({ users: persistence.listUsers() });
+app.get("/api/admin/users", requireAdmin, async (_req, res) => {
+  const persistence = await persistencePromise;
+  res.json({ users: await persistence.listUsers() });
 });
 
-app.post("/api/admin/users", requireAdmin, (req, res) => {
+app.post("/api/admin/users", requireAdmin, async (req, res) => {
+  const persistence = await persistencePromise;
   try {
-    const user = persistence.createUser(String(req.body?.username || ""), String(req.body?.password || ""), "user");
+    const user = await persistence.createUser(String(req.body?.username || ""), String(req.body?.password || ""), "user");
     res.status(201).json({ user });
   } catch (error) {
     sendError(res, error, 400);
   }
 });
 
-app.get("/api/workspace", requireUser, (req, res) => {
+app.get("/api/workspace", requireUser, async (req, res) => {
+  const persistence = await persistencePromise;
   const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
-  res.json(persistence.getWorkspace(user.id));
+  res.json(await persistence.getWorkspace(user.id));
 });
 
-app.put("/api/workspace", requireUser, (req, res) => {
+app.put("/api/workspace", requireUser, async (req, res) => {
+  const persistence = await persistencePromise;
   try {
     const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
     const expectedRevision = Number(req.body?.expectedRevision);
     if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new Error("expectedRevision 无效。");
-    const result = persistence.putWorkspace(user.id, expectedRevision, req.body?.payload);
+    const result = await persistence.putWorkspace(user.id, expectedRevision, req.body?.payload);
     res.json({ ok: true, ...result });
   } catch (error) {
     sendError(res, error, 400);
