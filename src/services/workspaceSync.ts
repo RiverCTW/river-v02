@@ -50,6 +50,17 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 
+async function createCloudWorkspacePayload() {
+  const payload = await createBackupPayload();
+  return {
+    ...payload,
+    sources: (payload.sources || []).map((source) => {
+      const { originalBase64: _base64, originalBlob: _blob, ...rest } = source as any;
+      return { ...rest, attachmentOmitted: true };
+    }),
+  };
+}
+
 export function onWorkspaceSyncState(listener: (state: WorkspaceSyncState, detail?: string) => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -70,7 +81,7 @@ export async function loadWorkspaceForUser(userId: string): Promise<{ payload: a
     activeUserId = userId;
     activeRevision = remote.revision;
     activePayloadExists = true;
-    lastSignature = payloadSignature(await createBackupPayload());
+    lastSignature = payloadSignature(await createCloudWorkspacePayload());
     startPolling();
     localStorage.setItem(revisionKey(userId), String(remote.revision));
     notify("saved");
@@ -79,7 +90,7 @@ export async function loadWorkspaceForUser(userId: string): Promise<{ payload: a
 }
 
 export async function adoptLocalWorkspace(userId: string): Promise<void> {
-  const payload = await createBackupPayload();
+  const payload = await createCloudWorkspacePayload();
   const result = await request<{ revision: number }>("/api/workspace", {
     method: "PUT",
     body: JSON.stringify({ expectedRevision: 0, payload }),
@@ -94,7 +105,7 @@ export async function adoptLocalWorkspace(userId: string): Promise<void> {
 }
 
 export async function startEmptyWorkspace(userId: string): Promise<void> {
-  const payload = await createBackupPayload();
+  const payload = await createCloudWorkspacePayload();
   const result = await request<{ revision: number }>("/api/workspace", {
     method: "PUT",
     body: JSON.stringify({ expectedRevision: 0, payload }),
@@ -131,7 +142,7 @@ export async function syncWorkspaceNow(): Promise<void> {
   notify("syncing");
   syncing = true;
   try {
-    const payload = await createBackupPayload();
+    const payload = await createCloudWorkspacePayload();
     const signature = payloadSignature(payload);
     if (signature === lastSignature) { notify("saved"); return; }
     const result = await request<{ revision: number }>("/api/workspace", {
