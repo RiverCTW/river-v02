@@ -1,4 +1,5 @@
 import express from "express";
+import compression from "compression";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -31,6 +32,7 @@ export function createApp() {
   const app = express();
   const persistencePromise = createPersistence();
 
+  app.use(compression());
   app.use(express.json({ limit: "50mb" }));
 
 function cookieValue(req: express.Request, name: string): string | null {

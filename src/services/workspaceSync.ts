@@ -52,11 +52,16 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 async function createCloudWorkspacePayload() {
   const payload = await createBackupPayload();
+  const { nodes: _nodes, blocks: _blocks, ...payloadWithoutProjections } = payload as any;
   return {
-    ...payload,
+    ...payloadWithoutProjections,
     sources: (payload.sources || []).map((source) => {
       const { originalBase64: _base64, originalBlob: _blob, ...rest } = source as any;
       return { ...rest, attachmentOmitted: true };
+    }),
+    learningMaps: (payload.learningMaps || []).map((map) => {
+      const { nodes: _mapNodes, blocks: _mapBlocks, ...rest } = map as any;
+      return rest;
     }),
   };
 }

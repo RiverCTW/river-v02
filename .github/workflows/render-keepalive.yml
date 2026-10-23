@@ -1,0 +1,17 @@
+name: River Render Keepalive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake and verify River
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --max-time 120 https://river-v02.onrender.com/api/health

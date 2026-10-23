@@ -1,5 +1,6 @@
 import type { SourceDocument } from "../types";
 import { db } from "./database";
+import { tiptapToNodes } from "../editor/convert";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
@@ -76,15 +77,31 @@ export async function restoreBackupPayload(data: any): Promise<void> {
     await Promise.all([
       db.folders.clear(), db.notes.clear(), db.sources.clear(), db.profiles.clear(), db.introductions.clear(), db.nodes.clear(), db.blocks.clear(), db.settings.clear(), db.learningMaps.clear(), db.chatMessages.clear(),
     ]);
+    const notes = data.notes || [];
+    const providedNodes = data.nodes || [];
+    const providedBlocks = data.blocks || [];
+    const nodeNoteIds = new Set(providedNodes.map((node: any) => node.noteId));
+    for (const note of notes) {
+      if (!note.editorDoc || nodeNoteIds.has(note.id)) continue;
+      const derived = tiptapToNodes(note.editorDoc, note.id);
+      providedNodes.push(...derived.nodes);
+      providedBlocks.push(...derived.blocks);
+      nodeNoteIds.add(note.id);
+    }
+    const learningMaps = (data.learningMaps || []).map((map: any) => {
+      if (map.nodes?.length && map.blocks?.length) return map;
+      const derived = tiptapToNodes(map.editorDoc, map.noteId);
+      return { ...map, nodes: derived.nodes, blocks: derived.blocks };
+    });
     await db.folders.bulkAdd(data.folders || []);
-    await db.notes.bulkAdd(data.notes || []);
+    await db.notes.bulkAdd(notes);
     await db.sources.bulkAdd(deserializeSourcesFromBackup(data.sources || []));
     await db.profiles.bulkAdd(data.profiles || []);
     await db.introductions.bulkAdd(data.introductions || []);
-    await db.nodes.bulkAdd(data.nodes || []);
-    await db.blocks.bulkAdd(data.blocks || []);
+    await db.nodes.bulkAdd(providedNodes);
+    await db.blocks.bulkAdd(providedBlocks);
     await db.settings.bulkAdd(data.settings || []);
-    await db.learningMaps.bulkAdd(data.learningMaps || []);
+    await db.learningMaps.bulkAdd(learningMaps);
     await db.chatMessages.bulkAdd(data.chatMessages || []);
   });
 }

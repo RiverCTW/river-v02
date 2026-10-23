@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../src/db/database";
 import { createBackupPayload, restoreBackupPayload } from "../src/db/backup";
+import { nodesToTiptap } from "../src/editor/convert";
 
 beforeEach(async () => {
   await db.open();
@@ -83,5 +84,24 @@ describe("River backup round-trip", () => {
     });
     await expect(db.learningMaps.get(["note-1", "questions"])).resolves.toMatchObject({ syncEnabled: false, revision: 1 });
     await expect(db.chatMessages.get("chat-1")).resolves.toMatchObject({ content: "测试问题", role: "user" });
+  });
+
+  it("rebuilds nodes and blocks from cloud editor documents", async () => {
+    const createdAt = "2026-10-14T10:00:00.000Z";
+    const note = { id: "cloud-note", folderId: null, title: "云端笔记", uiStyle: "effie" as const, createdAt, updatedAt: createdAt, deletedAt: null };
+    const node = { id: "cloud-node", noteId: note.id, parentId: null, order: 0, title: "云端知识点", nodeType: "root" as const, headingLevel: 1 as const, collapsed: false, sourceRefs: [], userModified: false, createdAt, updatedAt: createdAt };
+    const block = { id: "cloud-block", noteId: note.id, nodeId: node.id, order: 0, type: "explanation" as const, text: "云端正文", sourceRefs: [], userModified: false, createdAt, updatedAt: createdAt };
+    const editorDoc = nodesToTiptap([node], [block]);
+    await db.notes.add({ ...note, editorDoc });
+    await db.learningMaps.add({ noteId: note.id, kind: "questions", editorDoc, nodes: [node], blocks: [block], syncEnabled: false, revision: 1, createdAt, updatedAt: createdAt });
+    const backup = await createBackupPayload();
+    const cloudPayload = { ...backup, nodes: [], blocks: [], learningMaps: backup.learningMaps.map((map) => ({ ...map, nodes: [], blocks: [] })) };
+    await db.nodes.clear();
+    await db.blocks.clear();
+    await db.learningMaps.clear();
+    await restoreBackupPayload(cloudPayload);
+    await expect(db.nodes.get(node.id)).resolves.toMatchObject({ title: "云端知识点" });
+    await expect(db.blocks.get(block.id)).resolves.toMatchObject({ text: "云端正文" });
+    await expect(db.learningMaps.get([note.id, "questions"])).resolves.toMatchObject({ nodes: [{ id: node.id }] });
   });
 });
