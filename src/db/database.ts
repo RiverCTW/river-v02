@@ -56,7 +56,7 @@ class RiverDatabase extends Dexie {
 export let db = new RiverDatabase();
 
 export async function activateDatabaseForUser(userId: string): Promise<void> {
-  const databaseName = `river-v0.21:${userId}`;
+  const databaseName = `river-v0.22:${userId}`;
   if (db.name === databaseName && db.isOpen()) return;
   db.close();
   db = new RiverDatabase(databaseName);

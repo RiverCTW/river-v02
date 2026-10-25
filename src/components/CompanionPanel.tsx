@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { db } from "../db/database";
-import type { LearningMap, LearningMapKind } from "../types";
+import { useRef, useState } from "react";
+import type { LearningMapKind } from "../types";
 import { useAppStore } from "../store/useAppStore";
 import { LearningMapEditor } from "./LearningMapEditor";
 import { ChatPanel } from "./ChatPanel";
 import { ResizableSplit } from "./ResizableSplit";
-import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./IconSprite";
 
 export function CompanionPanel({ noteId }: { noteId: string }) {
@@ -14,27 +12,13 @@ export function CompanionPanel({ noteId }: { noteId: string }) {
   const deleteSourceAction = useAppStore((state) => state.deleteSourceAction);
   const reorderSourcesAction = useAppStore((state) => state.reorderSourcesAction);
   const [activeKind, setActiveKind] = useState<LearningMapKind>("requirements");
-  const [mapMenu, setMapMenu] = useState<{ x: number; y: number; kind: LearningMapKind } | null>(null);
-  const [mapRecords, setMapRecords] = useState<Partial<Record<LearningMapKind, LearningMap>>>({});
   const [dragActive, setDragActive] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const locked = Boolean(bundle?.note.sourcesLockedAt || bundle?.note.generationState === "completed");
   const sources = bundle?.sources?.length ? bundle.sources : bundle?.source ? [bundle.source] : [];
 
-  useEffect(() => {
-    db.learningMaps.where("noteId").equals(noteId).toArray().then((items) => setMapRecords(Object.fromEntries(items.map((item) => [item.kind, item])) as Partial<Record<LearningMapKind, LearningMap>>));
-  }, [noteId, bundle?.note.generatedAt]);
-
   const uploadFiles = async (files: FileList | File[]) => {
     for (const file of Array.from(files)) await attachCourseware(file);
-  };
-
-  const toggleSync = async (kind: LearningMapKind) => {
-    const map = mapRecords[kind];
-    if (!map) return;
-    const next = { ...map, syncEnabled: !map.syncEnabled, updatedAt: new Date().toISOString() };
-    await db.learningMaps.put(next);
-    setMapRecords((current) => ({ ...current, [kind]: next }));
   };
 
   const moveSource = async (index: number, direction: -1 | 1) => {
@@ -63,8 +47,8 @@ export function CompanionPanel({ noteId }: { noteId: string }) {
       </section>
 
       <div className="river-map-switch" role="tablist">
-        <button role="tab" aria-selected={activeKind === "requirements"} className={activeKind === "requirements" ? "selected" : ""} onClick={() => setActiveKind("requirements")} onContextMenu={(event) => { event.preventDefault(); setMapMenu({ x: event.clientX, y: event.clientY, kind: "requirements" }); }}>以要求来呈现<br />学习地图</button>
-        <button role="tab" aria-selected={activeKind === "questions"} className={activeKind === "questions" ? "selected" : ""} onClick={() => setActiveKind("questions")} onContextMenu={(event) => { event.preventDefault(); setMapMenu({ x: event.clientX, y: event.clientY, kind: "questions" }); }}>以问题来呈现<br />学习地图</button>
+        <button role="tab" aria-selected={activeKind === "requirements"} className={activeKind === "requirements" ? "selected" : ""} onClick={() => setActiveKind("requirements")}>学习目标式学习地图</button>
+        <button role="tab" aria-selected={activeKind === "questions"} className={activeKind === "questions" ? "selected" : ""} onClick={() => setActiveKind("questions")}>问题式学习地图</button>
       </div>
 
       <div className="river-companion-workarea">
@@ -78,7 +62,6 @@ export function CompanionPanel({ noteId }: { noteId: string }) {
           second={<ChatPanel noteId={noteId} />}
         />
       </div>
-      {mapMenu && <ContextMenu x={mapMenu.x} y={mapMenu.y} items={[{ id: "sync", label: mapRecords[mapMenu.kind]?.syncEnabled ? "不同步伴随栏笔记" : "同步伴随栏笔记", hint: "个人回答永远保留", action: () => toggleSync(mapMenu.kind) }]} onClose={() => setMapMenu(null)} />}
     </aside>
   );
 }

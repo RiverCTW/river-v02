@@ -50,7 +50,10 @@ export type ContentBlockType =
   | "comment"
   | "annotation"
   | "code"
-  | "divider";
+  | "divider"
+  | "importantTips"
+  | "referenceAnswer"
+  | "placeholder";
 
 export type ListType = "bullet" | "ordered";
 
@@ -196,8 +199,58 @@ export interface LearningIntroduction {
   goalQuestions: string[];
   positioning: string;
   prerequisiteNotes: string[];
+  clusters?: LearningCluster[];
+  learningPath?: Array<{ title: string; detail: string }>;
+  chapterGoal?: LearningGoalItem;
+  goalItems?: LearningGoalItem[];
+  chapterQuestion?: LearningQuestionItem;
+  questionItems?: LearningQuestionItem[];
+  directory?: DirectoryEntry[];
   generatedAt: string;
   userModified: boolean;
+}
+
+export interface LearningCluster {
+  id: string;
+  title: string;
+}
+
+export interface GoalEvidence {
+  sourceRefs: SourceReference[];
+  reason: string;
+}
+
+export interface DirectoryBlock {
+  type: ContentBlockType;
+  text: string;
+  sourceRefs: SourceReference[];
+}
+
+export interface DirectoryEntry {
+  sectionId: string;
+  title: string;
+  role: LearningMapSection["role"];
+  startPage?: number;
+  endPage?: number;
+  startSlide?: number;
+  endSlide?: number;
+  blocks: DirectoryBlock[];
+  subsections: Array<{ title: string; blocks: DirectoryBlock[] }>;
+}
+
+export interface LearningGoalItem {
+  id: string;
+  clusterId: string | null;
+  text: string;
+  evidence?: GoalEvidence;
+  uncertaintyReason?: string;
+}
+
+export interface LearningQuestionItem {
+  id: string;
+  clusterId: string | null;
+  text: string;
+  referenceAnswer: string;
 }
 
 export interface KnowledgeNode {
@@ -212,6 +265,9 @@ export interface KnowledgeNode {
   collapsed: boolean;
   sourceRefs: SourceReference[];
   userModified: boolean;
+  clusterId?: string | null;
+  uncertaintyReason?: string;
+  evidenceReason?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -226,6 +282,8 @@ export interface ContentBlock {
   listType?: ListType;
   sourceRefs: SourceReference[];
   userModified: boolean;
+  collapsed?: boolean;
+  meta?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -300,4 +358,7 @@ export const blockTypeLabels: Record<ContentBlockType, string> = {
   annotation: "标注",
   code: "代码",
   divider: "分隔线",
+  importantTips: "重要tips",
+  referenceAnswer: "参考答案",
+  placeholder: "占位",
 };

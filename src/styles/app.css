@@ -1670,3 +1670,85 @@ button {
     width: 100%;
   }
 }
+
+/* ---------- River v0.22: knowledge tree blocks ---------- */
+
+.river-outline-item[data-block-type="importantTips"] .river-outline-content p {
+  padding: 5px 11px;
+  border-left: 3px solid light-dark(#6ba3a0, #77b7b2);
+  border-radius: 0 5px 5px 0;
+  background: light-dark(#edf5f4, #1d2b2b);
+  color: light-dark(#215855, #a9d8d4);
+}
+
+.river-outline-item[data-block-type="pitfall"] .river-outline-content p {
+  padding: 4px 10px;
+  border-left: 3px solid light-dark(#c99a92, #c99087);
+  background: light-dark(#f8efed, #2e2220);
+  color: light-dark(#7c3c33, #e4b1a8);
+}
+
+.river-outline-item[data-block-type="placeholder"] .river-outline-content p {
+  color: light-dark(#9a958e, #8f979c);
+  font-size: 0.92em;
+  font-style: italic;
+}
+
+.river-outline-item[data-block-type="referenceAnswer"] .river-outline-content::before {
+  display: block;
+  content: "○ 展开参考答案";
+  margin: 1px 0 5px;
+  color: light-dark(#9a958e, #98a2a8);
+  font-size: 12px;
+  line-height: 1.5;
+  user-select: none;
+}
+
+.river-outline-item[data-block-type="referenceAnswer"][data-collapsed="false"] .river-outline-content::before {
+  content: "○ 收起参考答案";
+}
+
+.river-outline-item[data-block-type="referenceAnswer"][data-collapsed="true"] .river-outline-content p {
+  display: none;
+}
+
+.river-outline-item[data-block-type="referenceAnswer"] .river-outline-content p {
+  padding: 4px 10px;
+  border-radius: 5px;
+  background: light-dark(#f3f1ec, #23282b);
+  color: light-dark(#4a4f53, #c7ced2);
+  font-size: 0.95em;
+}
+
+.river-outline-item[data-block-type="referenceAnswer"] .river-outline-toggle {
+  opacity: 1;
+}
+
+.river-outline-item[data-block-type="referenceAnswer"] .river-outline-toggle::before {
+  content: "○";
+  font-size: 11px;
+}
+
+.river-outline-uncertainty {
+  width: 16px;
+  height: 22px;
+  color: light-dark(#b9b3aa, #7f8a90);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.river-outline-uncertainty:hover {
+  color: light-dark(#8c857b, #b6c0c6);
+}
+
+.river-outline-item.show-uncertainty::after {
+  display: block;
+  content: attr(data-uncertainty);
+  margin: 2px 0 6px 26px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: light-dark(#f4f1eb, #262b2e);
+  color: light-dark(#8c857b, #a8b2b8);
+  font-size: 12px;
+  line-height: 1.55;
+}

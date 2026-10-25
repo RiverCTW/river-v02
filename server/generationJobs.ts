@@ -4,6 +4,7 @@ import { generateCompleteLearningPackage } from "./ai";
 import type { GenerationJobRecord, PersistenceAdapter } from "./persistence";
 import { nodesToTiptap } from "../src/editor/convert";
 import { composeLearningOpeningOutline } from "../src/services/learningOpeningOutline";
+import { buildCompanionMaps } from "../src/services/companionCopy";
 
 const credentialKey = createHash("sha256")
   .update(process.env.RIVER_GENERATION_SECRET || process.env.RIVER_ADMIN_PASSWORD || "river-v021-local-development-secret")
@@ -121,8 +122,11 @@ async function commitGenerationWorkspace(persistence: PersistenceAdapter, job: G
     );
     const editorDoc = nodesToTiptap(composed.nodes, composed.blocks);
     const nextTitle = result?.data?.tree?.title || existingNote.title;
-    const requirementMap = buildLearningMap(job.noteId, "requirements", result?.data?.requirements, createdAt);
-    const questionMap = buildLearningMap(job.noteId, "questions", result?.data?.questions, createdAt);
+    // v0.22 companion documents are a one-time copy of the main tree; no
+    // second AI call and no reference answers.
+    const companion = buildCompanionMaps(composed.nodes as any, composed.blocks as any, job.noteId, createdAt);
+    const requirementMap = companion.requirements;
+    const questionMap = companion.questions;
     const notePatch = {
       title: nextTitle, editorDoc, revision: Number(existingNote.revision || 0) + 1,
       updatedAt: createdAt, generationState: "completed",
@@ -133,7 +137,7 @@ async function commitGenerationWorkspace(persistence: PersistenceAdapter, job: G
     const commit = {
       note: { ...existingNote, ...notePatch }, profile: lockedProfile, introduction,
       nodes: composed.nodes, blocks: composed.blocks,
-      learningMaps: [requirementMap, questionMap], revisionSource: workspace.revision,
+      learningMaps: [requirementMap, questionMap].filter(Boolean), revisionSource: workspace.revision,
     };
     const nextPayload = {
       ...current,
@@ -142,7 +146,7 @@ async function commitGenerationWorkspace(persistence: PersistenceAdapter, job: G
       introductions: [...(current.introductions || []).filter((item: any) => item.noteId !== job.noteId), introduction],
       nodes: [...(current.nodes || []).filter((node: any) => node.noteId !== job.noteId), ...composed.nodes],
       blocks: [...(current.blocks || []).filter((block: any) => block.noteId !== job.noteId), ...composed.blocks],
-      learningMaps: [...(current.learningMaps || []).filter((map: any) => map.noteId !== job.noteId), requirementMap, questionMap],
+      learningMaps: [...(current.learningMaps || []).filter((map: any) => map.noteId !== job.noteId), ...[requirementMap, questionMap].filter(Boolean)],
     };
     try {
       const saved = await persistence.putWorkspace(job.userId, workspace.revision, nextPayload);

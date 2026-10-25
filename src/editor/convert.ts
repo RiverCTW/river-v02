@@ -28,6 +28,9 @@ const blockTypes: ContentBlockType[] = [
   "annotation",
   "code",
   "divider",
+  "importantTips",
+  "referenceAnswer",
+  "placeholder",
 ];
 
 function textContent(node?: TiptapNode): string {
@@ -216,7 +219,7 @@ export function nodesToTiptap(nodes: KnowledgeNode[], blocks: ContentBlock[]): T
         markerVisible: false,
         sourceRefs: block.sourceRefs,
         userModified: block.userModified,
-        collapsed: false,
+        collapsed: block.collapsed ?? false,
         createdAt: block.createdAt,
         updatedAt: block.updatedAt,
       },
@@ -234,6 +237,9 @@ export function nodesToTiptap(nodes: KnowledgeNode[], blocks: ContentBlock[]): T
         sourceRefs: node.sourceRefs,
         userModified: node.userModified,
         collapsed: node.collapsed,
+        clusterId: node.clusterId ?? null,
+        uncertaintyReason: node.uncertaintyReason ?? null,
+        evidenceReason: node.evidenceReason ?? null,
         createdAt: node.createdAt,
         updatedAt: node.updatedAt,
       },
@@ -306,6 +312,7 @@ export function tiptapToNodes(doc: TiptapNode, noteId: string): { nodes: Knowled
           listType,
           sourceRefs: (attrs.sourceRefs as SourceReference[]) || [],
           userModified: Boolean(attrs.userModified),
+          collapsed: Boolean(attrs.collapsed),
           createdAt: String(attrs.createdAt || now),
           updatedAt: String(attrs.updatedAt || now),
         });
@@ -324,6 +331,9 @@ export function tiptapToNodes(doc: TiptapNode, noteId: string): { nodes: Knowled
           collapsed: Boolean(attrs.collapsed),
           sourceRefs: (attrs.sourceRefs as SourceReference[]) || [],
           userModified: Boolean(attrs.userModified),
+          clusterId: attrs.clusterId ? String(attrs.clusterId) : null,
+          uncertaintyReason: attrs.uncertaintyReason ? String(attrs.uncertaintyReason) : undefined,
+          evidenceReason: attrs.evidenceReason ? String(attrs.evidenceReason) : undefined,
           createdAt: String(attrs.createdAt || now),
           updatedAt: String(attrs.updatedAt || now),
         });

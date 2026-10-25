@@ -44,8 +44,10 @@ export interface GenerationJob {
 export interface FullLearningPackageData {
   introduction: any;
   tree: any;
-  requirements: { title: string; nodes: any[] };
-  questions: { title: string; nodes: any[] };
+  chapterMap?: any;
+  sections?: number;
+  requirements?: { title: string; nodes: any[] };
+  questions?: { title: string; nodes: any[] };
   batchCount: number;
   commit?: {
     note: any;

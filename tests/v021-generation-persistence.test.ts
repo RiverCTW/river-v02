@@ -37,13 +37,17 @@ describe("River v0.21 durable full-package jobs", () => {
       const system = String(requestBody.messages?.[0]?.content || "");
       modelCalls += 1;
       await new Promise((resolve) => setTimeout(resolve, 30));
-      const payload = system.includes("学习开场设计器")
-        ? { mapSections: [{ title: "章节", role: "intro", summary: "说明" }], goals: ["理解"], goalQuestions: ["是什么？"], positioning: "定位", prerequisiteNotes: [] }
-        : system.includes("知识树生成器")
-          ? { title: "持久化知识树", summary: "摘要", nodes: [node] }
-          : system.includes("要求式学习地图")
-            ? { title: "要求地图", nodes: [node] }
-            : { title: "问题地图", nodes: [node] };
+      const payload = system.includes("课件结构分析器")
+        ? { chapterTitle: "章节", sections: [{ id: "s1", title: "小节一", role: "key", startPage: 1, endPage: 1, summary: "说明", keyPoints: ["要点"], examples: [] }], learningOutcomes: [], exercises: [], hasEnglishTerms: false }
+        : system.includes("知识树正文生成器")
+          ? { title: "持久化知识树", summary: "摘要", nodes: [{ ...node, sectionId: "s1" }], coveredSectionIds: ["s1"] }
+          : system.includes("章节导入设计器")
+            ? { positioning: "定位", learningPath: [{ title: "第一步", detail: "细节" }, { title: "第二步", detail: "细节" }], prerequisites: ["提示"], clusters: [{ id: "c1", title: "小节一" }] }
+            : system.includes("本章目录生成器")
+              ? { entries: [{ sectionId: "s1", title: "小节一", role: "key", startPage: 1, endPage: 1, blocks: [block, { type: "example", text: "例子", sourceRefs: [] }], subsections: [] }] }
+              : system.includes("学习目标生成器")
+                ? { chapterGoal: { clusterId: null, text: "给定情境能完成判断。", reason: "综合", sourceRefs: [] }, goals: [{ clusterId: "c1", text: "能解释小节一。", reason: "重点", sourceRefs: [] }] }
+                : { chapterQuestion: { clusterId: null, text: "整章要解决什么？", referenceAnswer: "综合答案" }, questions: [{ clusterId: "c1", text: "小节问题？", referenceAnswer: "小节答案" }] };
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ id: `mock-${modelCalls}`, object: "chat.completion", created: 1, model: "deepseek-v4.1-flash", choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: JSON.stringify(payload) } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }));
     });
@@ -100,7 +104,7 @@ describe("River v0.21 durable full-package jobs", () => {
     }
     expect(job?.status).toBe("COMPLETED");
     expect(JSON.stringify(job)).not.toContain("sk-test");
-    expect(modelCalls).toBe(4);
+    expect(modelCalls).toBe(6);
 
     const savedResponse = await fetch(`${appBase}/api/workspace`, { headers: auth });
     const saved = (await savedResponse.json()).payload;

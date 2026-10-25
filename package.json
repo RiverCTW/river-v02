@@ -1,7 +1,7 @@
 {
-  "name": "riverv0.21",
+  "name": "riverv0.22",
   "private": true,
-  "version": "0.21.0",
+  "version": "0.22.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n web,api -c cyan,magenta \"vite\" \"tsx watch server/index.ts\"",

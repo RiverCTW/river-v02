@@ -11,6 +11,7 @@ import {
   regenerateBlockSchema,
   simplifyBlockSchema,
 } from "./schemas";
+import { generateCompleteLearningPackageV022 } from "./knowledgeTreeV022";
 
 export type AIProviderName = "openai" | "deepseek" | "opencode-go";
 
@@ -385,108 +386,11 @@ export async function generateCompleteLearningPackage(input: {
     totalSections?: number;
   }) => void;
 }) {
-  const report = (progress: number, message: string, meta?: Parameters<NonNullable<typeof input.onProgress>>[2]) => input.onProgress?.(progress, message, meta);
-  const profile = learningProfileSchema.parse(input.profile);
-  report(8, "正在生成学习开场…", { stage: "PARSING" });
-  const introductionResponse = input.introduction
-    ? null
-    : await generateLearningOpening({
-      provider: input.provider,
-      apiKey: input.apiKey,
-      model: input.model,
-      sessionId: input.sessionId,
-      sourceText: input.sourceText,
-      profile,
-    });
-  const introduction = introductionResponse?.data || input.introduction as z.infer<typeof learningIntroductionSchema>;
-  report(22, "正在规划资料分章…", { stage: "PLANNING" });
-  const batches = splitSourceBatches(input.sourceText);
-  const trees: z.infer<typeof knowledgeTreeSchema>[] = [];
-  const usages: UsageSummary[] = introductionResponse ? [introductionResponse.usage] : [];
-  let model = input.model || defaultModelForProvider(input.provider);
-
-  for (let index = 0; index < batches.length; index += 1) {
-    const batch = batches[index];
-    const ranges = Array.from(batch.matchAll(/\[第\s*(\d+)\s*(页|张幻灯片)\]/g));
-    const first = ranges[0];
-    const last = ranges.at(-1);
-    const unit = first?.[2] === "张幻灯片" ? "张" : "页";
-    const pageRange = first && last ? (first[1] === last[1] ? `${first[1]} ${unit}` : `${first[1]}–${last[1]} ${unit}`) : undefined;
-    const fileMarkers = Array.from(batch.matchAll(/=== 资料\s*\d+：(.+?)\s*===/g));
-    const currentFile = fileMarkers.at(-1)?.[1]?.trim();
-    const batchHeading = batch.split("\n")
-      .map((line) => line.trim())
-      .find((line) => line && !line.startsWith("===") && !line.startsWith("[第 "))?.slice(0, 48);
-    report(24 + Math.round((index / batches.length) * 32), `正在处理第 ${index + 1}/${batches.length} 批资料${pageRange ? ` · ${pageRange}` : ""}`, {
-      stage: "GENERATING", currentFile, pageRange, sectionTitle: batchHeading || `第 ${index + 1}/${batches.length} 批`, completedSections: index, totalSections: batches.length,
-    });
-    const response = await generateKnowledgeTree({
-      ...input,
-      sourceText: batch,
-      introduction: {
-        ...introduction,
-        batch: index + 1,
-        batchCount: batches.length,
-        instruction: "这是完整课件的一个顺序片段。必须保留本片段全部重要章节、公式、例子和练习，不得只写摘要。",
-      },
-    });
-    trees.push(response.data);
-    usages.push(response.usage);
-    model = response.model;
-  }
-
-  const tree: z.infer<typeof knowledgeTreeSchema> = {
-    title: trees[0]?.title || "学习知识树",
-    summary: trees.map((item) => item.summary).join(" ").slice(0, 1200),
-    nodes: trees.flatMap((item) => item.nodes),
-  };
-  const treeContext = JSON.stringify(tree).slice(0, 60_000);
-  report(62, "知识树已生成，正在生成两张学习地图…", { stage: "MERGING", completedSections: batches.length, totalSections: batches.length });
-  const profileContext = [
-    `学习意图：${profile.intent}`,
-    `当前程度：${profile.level}${profile.customLevel ? `（${profile.customLevel}）` : ""}`,
-    `学习用途：${profile.purpose}${profile.customPurpose ? `（${profile.customPurpose}）` : ""}`,
-    input.customization ? `个性化要求：${input.customization}` : "",
-  ].join("\n");
-
-  const mapRequest = async (kind: "requirements" | "questions") => generateStructured({
-    provider: input.provider,
-    apiKey: input.apiKey,
-    model,
-    sessionId: input.sessionId,
-    schema: learningMapDocumentSchema,
-    schemaName: kind === "requirements" ? "requirements_learning_map" : "question_learning_map",
-    effort: "high",
-    maxTokens: 48_000,
-    system: kind === "requirements"
-      ? "你是 River 的要求式学习地图生成器。把 Learning Outcomes、章节重点和技能要求整理成完整可编辑层级。每条要求都应有定义、解释或可操作说明，不能变成几句摘要。"
-      : "你是 River 的问题式学习地图生成器。根据标题、副标题、Learning Outcomes、关键概念、机制和计算任务生成由浅入深的问题树。问题下必须留有可继续展开的知识块。",
-    user: [
-      profileContext,
-      kind === "requirements" ? "生成要求式学习地图。" : "生成问题式学习地图。",
-      "完整知识树结构：",
-      treeContext,
-      "原始课件节选（如需核对）：",
-      compactSource(input.sourceText, 45_000),
-    ].join("\n"),
-  });
-
-  const [requirements, questions] = await Promise.all([mapRequest("requirements"), mapRequest("questions")]);
-  report(96, "正在校验并整理生成结果…", { stage: "VALIDATING", completedSections: batches.length, totalSections: batches.length });
-  const usage = [...usages, requirements.usage, questions.usage].reduce<UsageSummary>((sum, item) => ({
-    inputTokens: sum.inputTokens + item.inputTokens,
-    outputTokens: sum.outputTokens + item.outputTokens,
-    cachedInputTokens: sum.cachedInputTokens + item.cachedInputTokens,
-    estimatedCostUsd: sum.estimatedCostUsd + item.estimatedCostUsd,
-    estimatedCost: sum.estimatedCost + item.estimatedCost,
-    currency: item.currency,
-  }), { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, estimatedCostUsd: 0, estimatedCost: 0, currency: "USD" });
-
-  return {
-    data: { introduction, tree, requirements: requirements.data, questions: questions.data, batchCount: batches.length },
-    usage,
-    model,
-  };
+  return generateCompleteLearningPackageV022(input as any, {
+    generateStructured: generateStructured as any,
+    compactSource,
+    defaultModelForProvider: defaultModelForProvider as unknown as (provider: string) => string,
+  }) as Promise<{ data: any; usage: UsageSummary; model: string }>;
 }
 
 export async function generateChatAnswer(input: {
