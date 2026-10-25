@@ -173,4 +173,19 @@ PATH="/Users/river/.cache/codex-runtimes/codex-primary-runtime/dependencies/node
 
 ## 部署记录
 
-最终部署、健康检查、生产登录与双标签检查结果将在此节补充。
+部署提交：`9265370`（`main`）  
+部署平台：Render 现有服务 `river-v02`  
+生产 URL：`https://river-v02.onrender.com`
+
+部署后实际验证：
+
+- `/api/health` 返回 `ok: true` 且 `service: "riverv0.21"`。
+- 页面标题为 `River v0.21`。
+- 同一 Edge 浏览器、同一浏览器上下文、两个标签页分别登录：
+  - `测试-GJ`
+  - `Lewis`
+- 两标签页刷新后身份保持不变。
+- `Lewis` 标签页退出后，`测试-GJ` 标签页刷新仍保持登录。
+- 1366×768 与 1024×768 生产页面均无横向溢出。
+- 生产活动任务探测返回 HTTP 200 `{ active: false }`，不再通过无任务 404 污染控制台。
+- 上述生产浏览器检查未捕获 console error。
