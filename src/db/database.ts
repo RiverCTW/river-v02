@@ -30,8 +30,8 @@ class RiverDatabase extends Dexie {
   learningMaps!: Table<LearningMap, [string, LearningMap["kind"]]>;
   chatMessages!: Table<ChatMessage, string>;
 
-  constructor() {
-    super("river-v0.1");
+  constructor(name = "river-v0.1") {
+    super(name);
     this.version(1).stores({
       folders: "id, parentId, order, updatedAt",
       notes: "id, folderId, uiStyle, updatedAt, deletedAt",
@@ -53,7 +53,51 @@ class RiverDatabase extends Dexie {
   }
 }
 
-export const db = new RiverDatabase();
+export let db = new RiverDatabase();
+
+export async function activateDatabaseForUser(userId: string): Promise<void> {
+  const databaseName = `river-v0.21:${userId}`;
+  if (db.name === databaseName && db.isOpen()) return;
+  db.close();
+  db = new RiverDatabase(databaseName);
+  seedPromise = null;
+  await db.open();
+}
+
+export async function legacyDatabaseCounts(): Promise<{ notes: number; folders: number; sources: number }> {
+  const legacy = new RiverDatabase("river-v0.1");
+  try {
+    await legacy.open();
+    return {
+      notes: await legacy.notes.count(),
+      folders: await legacy.folders.count(),
+      sources: await legacy.sources.count(),
+    };
+  } finally {
+    legacy.close();
+  }
+}
+
+export async function copyLegacyDatabaseIntoCurrent(): Promise<void> {
+  const legacy = new RiverDatabase("river-v0.1");
+  try {
+    await legacy.open();
+    const [folders, notes, sources, profiles, introductions, nodes, blocks, aiRequests, settings, learningMaps, chatMessages] = await Promise.all([
+      legacy.folders.toArray(), legacy.notes.toArray(), legacy.sources.toArray(), legacy.profiles.toArray(),
+      legacy.introductions.toArray(), legacy.nodes.toArray(), legacy.blocks.toArray(), legacy.aiRequests.toArray(),
+      legacy.settings.toArray(), legacy.learningMaps.toArray(), legacy.chatMessages.toArray(),
+    ]);
+    await db.transaction("rw", [db.folders, db.notes, db.sources, db.profiles, db.introductions, db.nodes, db.blocks, db.aiRequests, db.settings, db.learningMaps, db.chatMessages], async () => {
+      await Promise.all([db.folders.clear(), db.notes.clear(), db.sources.clear(), db.profiles.clear(), db.introductions.clear(), db.nodes.clear(), db.blocks.clear(), db.aiRequests.clear(), db.settings.clear(), db.learningMaps.clear(), db.chatMessages.clear()]);
+      await db.folders.bulkAdd(folders); await db.notes.bulkAdd(notes); await db.sources.bulkAdd(sources);
+      await db.profiles.bulkAdd(profiles); await db.introductions.bulkAdd(introductions); await db.nodes.bulkAdd(nodes);
+      await db.blocks.bulkAdd(blocks); await db.aiRequests.bulkAdd(aiRequests); await db.settings.bulkAdd(settings);
+      await db.learningMaps.bulkAdd(learningMaps); await db.chatMessages.bulkAdd(chatMessages);
+    });
+  } finally {
+    legacy.close();
+  }
+}
 
 export const nowIso = () => new Date().toISOString();
 

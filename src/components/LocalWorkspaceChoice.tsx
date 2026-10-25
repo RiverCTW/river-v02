@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
-import { db } from "../db/database";
+import { db, legacyDatabaseCounts } from "../db/database";
 
 export function LocalWorkspaceChoice({ onAdopt, onEmpty }: { onAdopt: () => Promise<void>; onEmpty: () => Promise<void> }) {
   const [counts, setCounts] = useState({ notes: 0, folders: 0, sources: 0 });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    Promise.all([db.notes.count(), db.folders.count(), db.sources.count()]).then(([notes, folders, sources]) => setCounts({ notes, folders, sources }));
+    Promise.all([db.notes.count(), db.folders.count(), db.sources.count()]).then(async ([notes, folders, sources]) => {
+      if (notes || folders || sources) setCounts({ notes, folders, sources });
+      else setCounts(await legacyDatabaseCounts());
+    });
   }, []);
 
   const run = async (action: () => Promise<void>) => {

@@ -227,9 +227,41 @@ export function backspaceOutlineBoundary(editor: Editor): boolean {
   const selection = state.selection;
   if (!(selection instanceof TextSelection) || !selection.empty) return false;
   const current = findNearestListItem(state.doc, selection.from);
-  if (!current || current.node.childCount !== 1) return false;
+  if (!current) return false;
   const paragraph = current.node.firstChild;
-  if (!paragraph || paragraph.content.size !== 0) return false;
+  if (!paragraph || !paragraph.isTextblock) return false;
+  const paragraphStart = current.pos + 2;
+  const atTextStart = selection.from <= paragraphStart;
+
+  if (atTextStart && (paragraph.content.size > 0 || current.node.childCount > 1)) {
+    const $current = state.doc.resolve(current.pos);
+    const listDepth = $current.depth;
+    const list = $current.node(listDepth);
+    const itemIndex = $current.index();
+    if (list && itemIndex > 0) {
+      const previous = list.child(itemIndex - 1);
+      const previousParagraph = previous.firstChild;
+      if (previousParagraph?.isTextblock && previousParagraph.content.size > 0) {
+        const previousPos = current.pos - previous.nodeSize;
+        const mergedParagraph = previousParagraph.type.create(
+          previousParagraph.attrs,
+          Fragment.from(previousParagraph.content).append(paragraph.content),
+          previousParagraph.marks,
+        );
+        const previousExtras: PMNode[] = [];
+        previous.forEach((child, _offset, index) => { if (index > 0) previousExtras.push(child); });
+        const currentExtras: PMNode[] = [];
+        current.node.forEach((child, _offset, index) => { if (index > 0) currentExtras.push(child); });
+        const mergedItem = previous.type.create(previous.attrs, Fragment.fromArray([mergedParagraph, ...previousExtras, ...currentExtras]), previous.marks);
+        const transaction = state.tr.replaceWith(previousPos, current.pos + current.node.nodeSize, mergedItem);
+        placeCaretNear(transaction, previousPos + 2 + previousParagraph.content.size);
+        editor.view.dispatch(transaction.scrollIntoView());
+        return true;
+      }
+    }
+  }
+
+  if (current.node.childCount !== 1 || paragraph.content.size !== 0) return false;
 
   if (itemHasVisibleMarker(current.node)) {
     if (outdentSelectedItems(editor)) return true;

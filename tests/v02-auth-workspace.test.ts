@@ -30,11 +30,34 @@ async function startApi() {
   return `http://127.0.0.1:${address.port}`;
 }
 
-function cookieFrom(response: Response) {
-  return String(response.headers.get("set-cookie") || "").split(";")[0];
+async function tokenFrom(response: Response) {
+  return String((await response.clone().json()).sessionToken || "");
 }
 
 describe("River v0.2 authentication and workspace isolation", () => {
+  it("keeps simultaneous tab sessions independent when one tab rotates or logs out", async () => {
+    const base = await startApi();
+    const login = await fetch(`${base}/api/auth/login`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin-test", password: "admin-secret" }),
+    });
+    const inheritedToken = await tokenFrom(login);
+    const rotate = async () => {
+      const response = await fetch(`${base}/api/auth/tab`, { method: "POST", headers: { authorization: `Bearer ${inheritedToken}`, "content-type": "application/json" }, body: "{}" });
+      expect(response.status).toBe(200);
+      return tokenFrom(response);
+    };
+    const [tabA, tabB] = await Promise.all([rotate(), rotate()]);
+    expect(tabA).not.toBe(tabB);
+
+    const me = (token: string) => fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${token}` } });
+    expect((await me(tabA)).status).toBe(200);
+    expect((await me(tabB)).status).toBe(200);
+    expect((await fetch(`${base}/api/auth/logout`, { method: "POST", headers: { authorization: `Bearer ${tabA}`, "content-type": "application/json" }, body: "{}" })).status).toBe(200);
+    expect((await me(tabA)).status).toBe(401);
+    expect((await me(tabB)).status).toBe(200);
+  });
+
   it("requires login, isolates users and enforces workspace revisions", async () => {
     const base = await startApi();
     const unauthorized = await fetch(`${base}/api/workspace`);
@@ -46,25 +69,25 @@ describe("River v0.2 authentication and workspace isolation", () => {
       body: JSON.stringify({ username: "admin-test", password: "admin-secret" }),
     });
     expect(login.status).toBe(200);
-    const adminCookie = cookieFrom(login);
+    const adminToken = await tokenFrom(login);
 
     const createUser = await fetch(`${base}/api/admin/users`, {
       method: "POST",
-      headers: { "content-type": "application/json", cookie: adminCookie },
+      headers: { "content-type": "application/json", authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({ username: "friend", password: "friend-secret" }),
     });
     expect(createUser.status).toBe(201);
 
     const adminPut = await fetch(`${base}/api/workspace`, {
       method: "PUT",
-      headers: { "content-type": "application/json", cookie: adminCookie },
+      headers: { "content-type": "application/json", authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({ expectedRevision: 0, payload: { format: "river-backup", version: 2, notes: [{ id: "admin-note" }] } }),
     });
     expect(adminPut.status).toBe(200);
 
     const conflict = await fetch(`${base}/api/workspace`, {
       method: "PUT",
-      headers: { "content-type": "application/json", cookie: adminCookie },
+      headers: { "content-type": "application/json", authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({ expectedRevision: 0, payload: { format: "river-backup", version: 2, notes: [{ id: "stale" }] } }),
     });
     expect(conflict.status).toBe(409);
@@ -74,8 +97,8 @@ describe("River v0.2 authentication and workspace isolation", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ username: "friend", password: "friend-secret" }),
     });
-    const userCookie = cookieFrom(userLogin);
-    const userWorkspace = await fetch(`${base}/api/workspace`, { headers: { cookie: userCookie } });
+    const userToken = await tokenFrom(userLogin);
+    const userWorkspace = await fetch(`${base}/api/workspace`, { headers: { authorization: `Bearer ${userToken}` } });
     const userPayload = await userWorkspace.json();
     expect(userPayload).toMatchObject({ revision: 0, payload: null });
   });
@@ -87,7 +110,7 @@ describe("River v0.2 authentication and workspace isolation", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ username: "admin-test", password: "admin-secret" }),
     });
-    const cookie = cookieFrom(login);
+    const token = await tokenFrom(login);
     const lockedPayload = {
       format: "river-backup",
       version: 2,
@@ -97,13 +120,13 @@ describe("River v0.2 authentication and workspace isolation", () => {
     };
     const first = await fetch(`${base}/api/workspace`, {
       method: "PUT",
-      headers: { "content-type": "application/json", cookie },
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
       body: JSON.stringify({ expectedRevision: 0, payload: lockedPayload }),
     });
     expect(first.status).toBe(200);
     const changed = await fetch(`${base}/api/workspace`, {
       method: "PUT",
-      headers: { "content-type": "application/json", cookie },
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
       body: JSON.stringify({ expectedRevision: 1, payload: { ...lockedPayload, sources: [{ ...lockedPayload.sources[0], order: 1 }] } }),
     });
     expect(changed.status).toBe(423);

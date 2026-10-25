@@ -27,10 +27,17 @@ interface NoteListProps {
 
 interface MenuState { x: number; y: number; note: Note }
 
-function EffieCardOutline() {
+function tabWidthPercent(title: string): number {
+  const measured = Array.from(title.replace(/\s+/g, " ")).reduce((width, character) => width + (/[\u2e80-\u9fff]/u.test(character) ? 9 : 6), 0);
+  return Math.max(18, Math.min(50, ((52 + measured) / 760) * 100));
+}
+
+function EffieCardOutline({ title }: { title: string }) {
+  const tabEnd = Math.max(137, Math.min(380, (760 * tabWidthPercent(title)) / 100));
+  const curveStart = tabEnd;
   return (
     <svg className="effie-card-outline" viewBox="0 0 760 224" preserveAspectRatio="none" aria-hidden="true">
-      <path d="M22 1 H176 C190 1 198 7 204 17 L218 39 C223 48 232 53 244 53 H716 C741 53 759 70 759 94 V198 C759 213 747 223 732 223 H27 C12 223 1 211 1 196 V28 C1 13 11 1 22 1 Z" />
+      <path d={`M22 1 H${curveStart - 22} C${curveStart - 8} 1 ${curveStart} 7 ${curveStart + 7} 17 L${curveStart + 20} 37 C${curveStart + 25} 47 ${curveStart + 34} 53 ${curveStart + 46} 53 H716 C741 53 759 70 759 94 V198 C759 213 747 223 732 223 H27 C12 223 1 211 1 196 V28 C1 13 11 1 22 1 Z`} />
     </svg>
   );
 }
@@ -39,6 +46,8 @@ export function NoteList(props: NoteListProps) {
   const { notes, folders, selectedNoteId, uiStyle, deletedView, onSelect, onOpen } = props;
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [movingNote, setMovingNote] = useState<Note | null>(null);
+  const [moveTarget, setMoveTarget] = useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +70,7 @@ export function NoteList(props: NoteListProps) {
     { id: "delete", label: "永久删除", danger: true, action: () => props.onPermanentDelete?.(note.id) },
   ] : [
     { id: "rename", label: "重命名", action: () => { const title = window.prompt("笔记名称", note.title); if (title?.trim()) props.onRename(note.id, title.trim()); } },
+    { id: "move", label: "移动到…", action: () => { setMovingNote(note); setMoveTarget(note.folderId || ""); } },
     { id: "share", label: "分享", hint: "暂未开放", disabled: true },
     { id: "delete", label: "删除笔记", danger: true, action: () => props.onDelete(note.id) },
     { id: "pin", label: note.pinned ? "取消置顶" : "置顶（当前文件夹）", action: () => props.onPin(note.id) },
@@ -77,6 +87,16 @@ export function NoteList(props: NoteListProps) {
   };
 
   const folderName = (folderId: string | null) => folderId ? folders.find((folder) => folder.id === folderId)?.name || "未分类" : "根目录";
+
+  const moveDialog = movingNote ? (
+    <div className="river-move-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMovingNote(null); }}>
+      <div className="river-move-dialog" role="dialog" aria-modal="true" aria-labelledby="river-move-title">
+        <h3 id="river-move-title">移动“{movingNote.title}”</h3>
+        <label>目标文件夹<select className="river-input" value={moveTarget} onChange={(event) => setMoveTarget(event.target.value)}><option value="">根目录</option>{folders.filter((folder) => !folder.deletedAt).map((folder) => <option key={folder.id} value={folder.id}>{folderName(folder.id)}</option>)}</select></label>
+        <div className="river-move-actions"><button className="river-button" onClick={() => setMovingNote(null)}>取消</button><button className="river-button primary" onClick={() => { props.onMove(movingNote.id, moveTarget || null); setMovingNote(null); }}>确认移动</button></div>
+      </div>
+    </div>
+  ) : null;
 
   if (uiStyle === "notability") {
     return (
@@ -96,6 +116,7 @@ export function NoteList(props: NoteListProps) {
           ))}
         </div>
         {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.note)} onClose={() => setMenu(null)} />}
+        {moveDialog}
       </>
     );
   }
@@ -112,9 +133,9 @@ export function NoteList(props: NoteListProps) {
             onDoubleClick={() => !deletedView && onOpen(note.id)}
             onContextMenu={context(note)}
           >
-            <EffieCardOutline />
+            <EffieCardOutline title={note.title} />
             <div className="effie-card-content">
-              <div className="effie-card-tab"><FolderIcon /><span>{note.title.replace(/\s+/g, " ").slice(0, 34)}</span></div>
+              <div className="effie-card-tab" style={{ maxWidth: `${tabWidthPercent(note.title)}%` }}><FolderIcon /><span>{note.title.replace(/\s+/g, " ")}</span></div>
               <button className={`note-heart ${note.favorite ? "is-favorite" : ""}`} onClick={(event) => { event.stopPropagation(); props.onFavorite(note.id); }} aria-label={note.favorite ? "取消收藏" : "收藏"}>{note.favorite ? "♥" : "♡"}</button>
               <div className="effie-card-title tmi-note-title">{note.title}</div>
               <div className="effie-card-preview tmi-note-preview">{previews[note.id] || "还没有内容，打开后开始学习。"}</div>
@@ -126,6 +147,7 @@ export function NoteList(props: NoteListProps) {
         ))}
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.note)} onClose={() => setMenu(null)} />}
+      {moveDialog}
     </>
   );
 }

@@ -4,7 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { clearedSessionCookie, createPersistence, sessionCookie, type AuthUser } from "./persistence";
+import { clearedSessionCookie, createPersistence, type AuthUser } from "./persistence";
+import { encryptGenerationCredential, launchGenerationJob, newGenerationJobId, publicGenerationJob, resumeGenerationJobs } from "./generationJobs";
 import {
   DEFAULT_MODEL,
   DEEPSEEK_MODEL_ID,
@@ -16,7 +17,6 @@ import {
   SUPPORTED_MODELS,
   expandNode,
   generateChatAnswer,
-  generateCompleteLearningPackage,
   generateKnowledgeTree,
   generateLearningOpening,
   regenerateBlock,
@@ -31,6 +31,9 @@ const CC_SWITCH_OPENCODE_PROVIDER_ID = "fcb21a00-52ef-45d6-9219-a19b181547be";
 export function createApp() {
   const app = express();
   const persistencePromise = createPersistence();
+  void persistencePromise
+    .then((persistence) => resumeGenerationJobs(persistence))
+    .catch((error) => console.error("River generation recovery failed", error));
 
   app.use(compression());
   app.use(express.json({ limit: "50mb" }));
@@ -44,7 +47,9 @@ function cookieValue(req: express.Request, name: string): string | null {
 async function currentUser(req: express.Request): Promise<AuthUser | null> {
   const persistence = await persistencePromise;
   if (process.env.RIVER_E2E_BYPASS_AUTH === "1") return persistence.firstAdmin();
-  return persistence.userForSession(cookieValue(req, "river_session"));
+  const authorization = req.header("authorization") || "";
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : null;
+  return persistence.userForSession(token);
 }
 
 async function requireUser(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -75,13 +80,24 @@ app.post("/api/auth/login", async (req, res) => {
   const user = await persistence.authenticate(username, password);
   if (!user) return sendError(res, new Error("用户名或密码不正确。"), 401);
   const token = await persistence.createSession(user.id);
-  res.setHeader("Set-Cookie", sessionCookie(token));
-  res.json({ authenticated: true, user });
+  // Clear the legacy browser-wide cookie; v0.21 uses a tab-scoped Bearer token.
+  res.setHeader("Set-Cookie", clearedSessionCookie);
+  res.json({ authenticated: true, user, sessionToken: token });
+});
+
+app.post("/api/auth/tab", requireUser, async (req, res) => {
+  const persistence = await persistencePromise;
+  const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
+  const token = await persistence.createSession(user.id);
+  res.setHeader("Set-Cookie", clearedSessionCookie);
+  res.json({ authenticated: true, user, sessionToken: token });
 });
 
 app.post("/api/auth/logout", async (req, res) => {
   const persistence = await persistencePromise;
-  await persistence.deleteSession(cookieValue(req, "river_session"));
+  const authorization = req.header("authorization") || "";
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : null;
+  await persistence.deleteSession(token);
   res.setHeader("Set-Cookie", clearedSessionCookie);
   res.json({ ok: true });
 });
@@ -121,15 +137,6 @@ app.put("/api/workspace", requireUser, async (req, res) => {
 });
 
 const requestBuckets = new Map<string, { count: number; resetAt: number }>();
-const generationJobs = new Map<string, {
-  userId: string;
-  status: "running" | "completed" | "failed";
-  progress: number;
-  message: string;
-  result?: unknown;
-  error?: string;
-  updatedAt: number;
-}>();
 function rateLimit(key: string, limit = 30, windowMs = 10 * 60 * 1000) {
   const now = Date.now();
   const bucket = requestBuckets.get(key);
@@ -218,7 +225,7 @@ function sendError(res: express.Response, error: unknown, status = 500) {
 app.get("/api/health", (req, res) => {
   res.json({
     ok: true,
-    service: "riverv0.2",
+    service: "riverv0.21",
     defaultModel: DEFAULT_MODEL,
     supportedModels: SUPPORTED_MODELS,
     ccSwitchOpenCodeConfigured: isLoopbackRequest(req) && Boolean(readCcSwitchOpenCodeKey()),
@@ -292,37 +299,52 @@ app.post("/api/ai/tree", async (req, res) => {
 });
 
 app.post("/api/ai/full-package", requireUser, async (req, res) => {
+  const persistence = await persistencePromise;
   const apiKey = getApiKey(req);
   const provider = getProvider(req);
   const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
+  const noteId = String(req.body?.noteId || "").trim();
+  if (!noteId) return sendError(res, new Error("缺少目标笔记 ID。"), 400);
   if (!apiKey) return sendError(res, new Error("缺少 API Key。"), 400);
   if (!rateLimit(`full-package:${apiKey.slice(-8)}`, 10)) return sendError(res, new Error("请求过于频繁，请稍后再试。"), 429);
-  const jobId = randomUUID();
-  generationJobs.set(jobId, { userId: user.id, status: "running", progress: 3, message: "正在准备生成任务…", updatedAt: Date.now() });
-  void generateCompleteLearningPackage({
-      apiKey,
-      provider,
-      model: req.body?.model,
+  const existing = await persistence.getActiveGenerationJob(user.id, noteId);
+  if (existing) {
+    launchGenerationJob(persistence, existing.id);
+    return res.status(202).json(publicGenerationJob(existing));
+  }
+  const credential = encryptGenerationCredential(apiKey);
+  const job = await persistence.createGenerationJob({
+    id: newGenerationJobId(), userId: user.id, noteId,
+    provider, model: String(req.body?.model || ""),
+    payloadJson: {
+      sourceText: String(req.body?.sourceText || ""), profile: req.body?.profile,
+      customization: String(req.body?.customization || ""), introduction: req.body?.introduction,
+      sourceSnapshot: req.body?.sourceSnapshot,
+      totalPages: Number(req.body?.totalPages || 0),
       sessionId: getAiSessionId(req),
-      sourceText: String(req.body?.sourceText || ""),
-      profile: req.body?.profile,
-      introduction: req.body?.introduction,
-      onProgress: (progress, message) => generationJobs.set(jobId, { userId: user.id, status: "running", progress, message, updatedAt: Date.now() }),
-    }).then((result) => {
-      generationJobs.set(jobId, { userId: user.id, status: "completed", progress: 100, message: "知识树和两张学习地图已生成。", result, updatedAt: Date.now() });
-    }).catch((error) => {
-      generationJobs.set(jobId, { userId: user.id, status: "failed", progress: 0, message: "生成失败。", error: error instanceof Error ? error.message : String(error), updatedAt: Date.now() });
-    });
-  res.status(202).json({ jobId, status: "running", progress: 3, message: "正在准备生成任务…" });
+    },
+    credentialCipher: credential.cipher, credentialIv: credential.iv, credentialTag: credential.tag,
+  });
+  launchGenerationJob(persistence, job.id);
+  res.status(202).json(publicGenerationJob(job));
 });
 
-app.get("/api/ai/full-package/:jobId", requireUser, (req, res) => {
+app.get("/api/ai/full-package/active", requireUser, async (req, res) => {
+  const persistence = await persistencePromise;
   const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
-  const jobId = String(req.params.jobId);
-  const job = generationJobs.get(jobId);
-  if (!job || job.userId !== user.id) return sendError(res, new Error("生成任务不存在或已过期。"), 404);
-  if (Date.now() - job.updatedAt > 30 * 60 * 1000 && job.status !== "running") generationJobs.delete(jobId);
-  res.json({ jobId, status: job.status, progress: job.progress, message: job.message, result: job.result, error: job.error });
+  const noteId = String(req.query.noteId || "").trim();
+  if (!noteId) return sendError(res, new Error("缺少目标笔记 ID。"), 400);
+  const active = await persistence.getActiveGenerationJob(user.id, noteId);
+  if (active) return res.json(publicGenerationJob(active));
+  res.json({ active: false });
+});
+
+app.get("/api/ai/full-package/:jobId", requireUser, async (req, res) => {
+  const persistence = await persistencePromise;
+  const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
+  const job = await persistence.getGenerationJob(String(req.params.jobId), user.id);
+  if (!job) return sendError(res, new Error("生成任务不存在或已过期。"), 404);
+  res.json(publicGenerationJob(job));
 });
 
 app.post("/api/ai/chat", requireUser, async (req, res) => {

@@ -11,8 +11,10 @@ import { AdminUsersModal } from "./components/AdminUsersModal";
 import { useAppStore } from "./store/useAppStore";
 import { flushActiveEditor } from "./editor/editorFlush";
 import { getCurrentUser, logout as logoutRequest } from "./services/authClient";
-import { adoptLocalWorkspace, clearLocalWorkspace, flushWorkspace, loadWorkspaceForUser, onWorkspaceSyncState, startEmptyWorkspace } from "./services/workspaceSync";
+import { adoptLocalWorkspace, clearLocalWorkspace, flushWorkspace, loadWorkspaceForUser, onWorkspaceSyncState, reloadWorkspaceFromServer, startEmptyWorkspace } from "./services/workspaceSync";
 import type { AuthUser } from "./types";
+import { activateDatabaseForUser, copyLegacyDatabaseIntoCurrent, db, legacyDatabaseCounts } from "./db/database";
+import { createBackupPayload } from "./db/backup";
 
 export function App() {
   const bootstrap = useAppStore((state) => state.bootstrap);
@@ -35,6 +37,7 @@ export function App() {
   const [needsWorkspaceChoice, setNeedsWorkspaceChoice] = useState(false);
   const [workspaceError, setWorkspaceError] = useState("");
   const [syncState, setSyncState] = useState("idle");
+  const [syncDetail, setSyncDetail] = useState("");
   const sharedShareId = window.location.pathname.match(/^\/share\/([^/]+)\/?$/)?.[1];
 
   const returnToLibrary = async () => {
@@ -53,11 +56,16 @@ export function App() {
   };
 
   useEffect(() => {
+    if (import.meta.env.VITE_E2E_LOCAL_ONLY === "1") {
+      setUser({ id: "local-e2e", username: "E2E", role: "admin", createdAt: new Date(0).toISOString() });
+      setAuthReady(true);
+      return;
+    }
     getCurrentUser().then(setUser).catch(() => setUser(null)).finally(() => setAuthReady(true));
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onWorkspaceSyncState((state) => setSyncState(state));
+    const unsubscribe = onWorkspaceSyncState((state, detail) => { setSyncState(state); setSyncDetail(detail || ""); });
     return () => { unsubscribe(); };
   }, []);
 
@@ -69,7 +77,7 @@ export function App() {
     }
     let cancelled = false;
     setWorkspaceReady(false);
-    loadWorkspaceForUser(user.id).then(async (workspace) => {
+    activateDatabaseForUser(user.id).then(() => loadWorkspaceForUser(user.id)).then(async (workspace) => {
       if (cancelled) return;
       if (workspace.payload) {
         setNeedsWorkspaceChoice(false);
@@ -77,9 +85,9 @@ export function App() {
         return;
       }
       // A brand-new server account can safely start empty without a choice.
-      const { db } = await import("./db/database");
       const noteCount = await db.notes.count();
-      if (noteCount === 0) {
+      const legacyCount = noteCount === 0 ? await legacyDatabaseCounts() : null;
+      if (noteCount === 0 && (legacyCount?.notes || 0) === 0) {
         await startEmptyWorkspace(user.id);
         if (!cancelled) setWorkspaceReady(true);
       } else if (!cancelled) {
@@ -102,7 +110,12 @@ export function App() {
   if (!user) return <LoginPage onLogin={(nextUser) => setUser(nextUser)} />;
   if (needsWorkspaceChoice) {
     return <LocalWorkspaceChoice
-      onAdopt={async () => { await adoptLocalWorkspace(user.id); setNeedsWorkspaceChoice(false); setWorkspaceReady(true); }}
+      onAdopt={async () => {
+        if (await db.notes.count() === 0) await copyLegacyDatabaseIntoCurrent();
+        await adoptLocalWorkspace(user.id);
+        setNeedsWorkspaceChoice(false);
+        setWorkspaceReady(true);
+      }}
       onEmpty={async () => { await clearLocalWorkspace(); await startEmptyWorkspace(user.id); setNeedsWorkspaceChoice(false); setWorkspaceReady(true); }}
     />;
   }
@@ -120,6 +133,17 @@ export function App() {
     window.location.reload();
   };
 
+  const exportConflictCopy = async () => {
+    const payload = await createBackupPayload();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `river-conflict-local-${new Date().toISOString().replaceAll(":", "-")}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div id="river-app" className="river-app-shell">
       <IconSprite />
@@ -128,7 +152,7 @@ export function App() {
           <div className="river-brand-mark">R</div>
           <div>
             <div className="river-brand-title">River</div>
-            <div className="river-brand-subtitle">AI 伴随学习 · v0.2</div>
+            <div className="river-brand-subtitle">AI 伴随学习 · v0.21</div>
           </div>
         </div>
         <div className="river-topbar-actions">
@@ -157,6 +181,7 @@ export function App() {
         </div>
       </header>
       <div className={`river-sync-state is-${syncState}`}>{syncState === "syncing" ? "正在同步…" : syncState === "conflict" ? "同步冲突" : syncState === "offline" ? "离线草稿" : syncState === "error" ? "同步失败" : "已同步"}</div>
+      {syncState === "conflict" && <div className="river-conflict-banner" role="alert"><span>{syncDetail || "这篇笔记的云端版本已被另一个标签页更新。本地修改仍保留在本机。"}</span><button className="river-button" onClick={() => void exportConflictCopy()}>导出本地冲突副本</button><button className="river-button" onClick={async () => { if (window.confirm("载入云端版本会替换当前浏览器中的工作区；请先导出本地冲突副本。继续？")) { await flushActiveEditor(); await reloadWorkspaceFromServer(user.id); window.location.reload(); } }}>载入云端版本</button></div>}
       <main className="river-main">
         {bundle ? <KnowledgeEditor /> : <LibraryView />}
       </main>

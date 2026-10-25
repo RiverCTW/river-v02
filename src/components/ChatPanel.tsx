@@ -28,7 +28,9 @@ export function ChatPanel({ noteId }: { noteId: string }) {
     return () => { cancelled = true; };
   }, [noteId]);
 
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [messages.length, sending]);
+  useEffect(() => {
+    if (messages.length || sending) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [messages.length, sending]);
 
   const apiKey = provider === "deepseek" ? deepseekApiKey : provider === "opencode-go" ? (ccSwitchKeyEnabled ? CC_SWITCH_LOCAL_KEY : opencodeGoApiKey) : openaiApiKey;
 
@@ -76,7 +78,7 @@ export function ChatPanel({ noteId }: { noteId: string }) {
     <section className="river-chat-panel">
       <header><b>AI 对话</b><span>{mode === "sources" ? "资料优先" : "允许补充"}</span></header>
       <div ref={scrollRef} className="river-chat-history">
-        {messages.length === 0 && <div className="river-chat-empty">围绕这份笔记的课件、知识树和个人回答提问。AI 只回答问题，不会修改笔记。</div>}
+        {messages.length === 0 && <div className="river-chat-empty">围绕这份笔记提问；AI 只回答，不改笔记。</div>}
         {messages.map((message) => <div key={message.id} className={`river-chat-message is-${message.role} ${message.status === "error" ? "is-error" : ""}`}><div>{message.status === "error" ? `回答失败：${message.error}` : message.content}</div><small>{message.role === "user" ? "你" : "River AI"} · {new Date(message.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></div>)}
         {sending && <div className="river-chat-message is-assistant is-pending">正在组织回答…</div>}
       </div>

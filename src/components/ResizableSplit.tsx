@@ -42,6 +42,7 @@ export function ResizableSplit({ direction, storageKey, defaultPercent, minFirst
   };
 
   const end = () => {
+    if (!dragging.current) return;
     dragging.current = false;
     document.body.classList.remove("is-resizing-split");
   };
@@ -49,7 +50,15 @@ export function ResizableSplit({ direction, storageKey, defaultPercent, minFirst
   useEffect(() => {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
-    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("blur", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("blur", end);
+      end();
+    };
   });
 
   return (
@@ -59,7 +68,14 @@ export function ResizableSplit({ direction, storageKey, defaultPercent, minFirst
         className="river-split-divider"
         role="separator"
         aria-orientation={direction === "horizontal" ? "vertical" : "horizontal"}
-        onPointerDown={(event) => { dragging.current = true; event.currentTarget.setPointerCapture(event.pointerId); document.body.classList.add("is-resizing-split"); }}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          dragging.current = true;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          document.body.classList.add("is-resizing-split");
+        }}
+        onLostPointerCapture={end}
+        onPointerCancel={end}
         onDoubleClick={() => setPercent(defaultPercent)}
       />
       <div className="river-split-pane">{second}</div>

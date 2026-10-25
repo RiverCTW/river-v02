@@ -1,5 +1,6 @@
 import { createBackupPayload, restoreBackupPayload } from "../db/backup";
 import { db } from "../db/database";
+import { authHeaders } from "./sessionAuth";
 
 export type WorkspaceSyncState = "idle" | "syncing" | "saved" | "conflict" | "offline" | "error";
 
@@ -38,7 +39,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     credentials: "same-origin",
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...(init?.headers || {}) },
   });
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -166,6 +167,23 @@ export async function syncWorkspaceNow(): Promise<void> {
   } finally {
     syncing = false;
   }
+}
+
+/**
+ * Generation commits happen in a server Worker, not in this tab. After the
+ * tab has applied the returned commit locally, advance its revision baseline
+ * without reloading and overwriting unrelated local edits.
+ */
+export async function adoptServerWorkspaceRevision(): Promise<void> {
+  if (!activeUserId || !activePayloadExists) return;
+  const remote = await request<{ payload: any | null; revision: number }>("/api/workspace");
+  activeRevision = remote.revision;
+  if (remote.payload) lastSignature = payloadSignature(remote.payload);
+  localStorage.setItem(revisionKey(activeUserId), String(activeRevision));
+}
+
+export async function reloadWorkspaceFromServer(userId: string): Promise<void> {
+  await loadWorkspaceForUser(userId);
 }
 
 export async function flushWorkspace(): Promise<void> {

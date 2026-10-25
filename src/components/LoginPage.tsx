@@ -26,7 +26,7 @@ export function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
     <div id="river-app" className="river-auth-page">
       <IconSprite />
       <form className="river-auth-card" onSubmit={submit}>
-        <div className="river-auth-brand"><span>R</span><div><b>River</b><small>v0.2 · 长期学习空间</small></div></div>
+        <div className="river-auth-brand"><span>R</span><div><b>River</b><small>v0.21 · 长期学习空间</small></div></div>
         <h1>登录你的学习空间</h1>
         <p>账号由管理员预先创建。笔记、资料、学习地图和对话将跟随账号保存。</p>
         <label>用户名<input className="river-input" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>

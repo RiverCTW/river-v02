@@ -148,6 +148,7 @@ export interface LearningProfile {
   customLevel?: string;
   purpose: LearningPurpose;
   customPurpose?: string;
+  customization?: string;
   goalStyle?: GoalStyle;
   createdAt: string;
   updatedAt: string;

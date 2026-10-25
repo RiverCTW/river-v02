@@ -47,13 +47,28 @@ import type {
   UIStyle,
 } from "../types";
 import { addChildNode, addNodeAfter, deleteNode, flattenTree, indentNode, moveNode, outdentNode, buildTree } from "../services/tree";
-import { CC_SWITCH_LOCAL_KEY, expandNode, generateFullLearningPackage, generateOpening, generateTree, regenerateBlock, simplifyBlock, validateKey } from "../services/aiClient";
+import {
+  CC_SWITCH_LOCAL_KEY,
+  expandNode,
+  generateFullLearningPackage,
+  generateOpening,
+  generateTree,
+  getActiveFullLearningPackageJob,
+  regenerateBlock,
+  simplifyBlock,
+  validateKey,
+  waitForFullLearningPackage,
+  type AIResponse,
+  type FullLearningPackageData,
+  type GenerationJob,
+} from "../services/aiClient";
 import { parseCourseware, sourceToText } from "../services/uploadService";
 import { createBackupPayload, restoreBackupPayload } from "../db/backup";
 import { composeLearningOpeningOutline } from "../services/learningOpeningOutline";
 import { nodesToTiptap, tiptapToNodes } from "../editor/convert";
 import { flushActiveEditor, renameActiveEditorTitle } from "../editor/editorFlush";
 import { clearEditorSnapshot, readEditorSnapshot, readEditorSnapshotRecord } from "../editor/snapshotCache";
+import { adoptServerWorkspaceRevision, scheduleWorkspaceSync } from "../services/workspaceSync";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -98,8 +113,14 @@ interface AppState {
   saveStatus: SaveStatus;
   saveError: string | null;
   isGenerating: boolean;
+  generationNoteId: string | null;
   generationMessage: string;
   generationProgress: number;
+  generationStage: string;
+  generationPageRange: string | null;
+  generationTotalPages: number;
+  generationSectionTitle: string | null;
+  generationCurrentFile: string | null;
   toast: ToastMessage | null;
   pendingAI: PendingAIResult | null;
   history: Array<{ nodes: KnowledgeNode[]; blocks: ContentBlock[] }>;
@@ -157,6 +178,7 @@ interface AppState {
   materializeLearningOpeningAction: () => Promise<void>;
   generateOpeningAction: () => Promise<void>;
   generateTreeAction: () => Promise<void>;
+  resumeGenerationForNote: (noteId: string) => Promise<void>;
   runRegenerate: (nodeId: string, blockId: string) => Promise<void>;
   runSimplify: (nodeId: string, blockId: string) => Promise<void>;
   runExpand: (nodeId: string) => Promise<void>;
@@ -269,8 +291,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   saveStatus: "idle",
   saveError: null,
   isGenerating: false,
+  generationNoteId: null,
   generationMessage: "",
   generationProgress: 0,
+  generationStage: "",
+  generationPageRange: null,
+  generationTotalPages: 0,
+  generationSectionTitle: null,
+  generationCurrentFile: null,
   toast: null,
   pendingAI: null,
   history: [],
@@ -385,6 +413,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       future: [],
     });
     if (typeof sessionStorage !== "undefined") sessionStorage.setItem("river.active-note", noteId);
+    void get().resumeGenerationForNote(noteId);
   },
 
   closeNote: () => {
@@ -929,6 +958,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (bundle.note.generationState === "completed") {
       get().showToast("这份笔记已经生成过知识树，不能覆盖。需要新内容时请新建笔记。", "error"); return;
     }
+    if (get().isGenerating && get().generationNoteId === bundle.note.id) {
+      get().showToast("这份笔记的后台生成任务已经在运行。", "info"); return;
+    }
     const profile = bundle.profile;
     if (!profile.intent || !profile.level || !profile.purpose || (profile.purpose === "custom" && !profile.customPurpose?.trim())) {
       get().showToast("三项学习偏好必须全部有效填写。", "error"); return;
@@ -938,61 +970,76 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!apiKey) {
       get().showToast(`请先配置 ${providerDisplayName(state.provider)} API Key。`, "error"); return;
     }
-    await updateNote(bundle.note.id, { generationState: "generating", generationError: null });
-    set({ isGenerating: true, generationMessage: "正在分章生成完整知识树与两张学习地图…", generationProgress: 20 });
+    const orderedSources = (bundle.sources?.length ? bundle.sources : [bundle.source!]).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+    const lockedAt = iso();
+    await updateNote(bundle.note.id, { generationState: "generating", generationError: null, sourcesLockedAt: lockedAt, profileLockedAt: lockedAt });
+    set({
+      isGenerating: true, generationNoteId: bundle.note.id,
+      generationMessage: "正在提交后台生成任务…", generationProgress: 1,
+      generationStage: "QUEUED", generationPageRange: null, generationSectionTitle: null, generationCurrentFile: null,
+      generationTotalPages: orderedSources.reduce((sum, source) => sum + source.pages.length + source.slides.length, 0),
+    });
     try {
-      const orderedSources = (bundle.sources?.length ? bundle.sources : [bundle.source!]).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
-      const sourceText = orderedSources.map((source, index) => `=== 资料 ${index + 1}：${source.fileName} ===\n${sourceToText(source)}`).join("\n\n");
-      const response = await generateFullLearningPackage(state.provider, apiKey, state.model, { sourceText, profile }, (progress, message) => {
-        set({ generationProgress: progress, generationMessage: message });
+      const sourceText = orderedSources.map((source, index) => {
+        const marker = `=== 资料 ${index + 1}：${source.fileName} ===`;
+        // Repeat the source marker at each real page boundary so every durable
+        // job update can name the exact file as well as its parsed page range.
+        const pages = sourceToText(source).split("\n\n").map((part) => `${marker}\n${part}`).join("\n\n");
+        return pages || `${marker}`;
+      }).join("\n\n");
+      const sourceSnapshot = orderedSources.map((source, index) => ({
+        id: source.id, order: index, fileName: source.fileName, kind: source.kind,
+        pages: source.pages.length, slides: source.slides.length, textCharCount: source.textCharCount,
+      }));
+      const response = await generateFullLearningPackage(state.provider, apiKey, state.model, {
+        noteId: bundle.note.id, sourceText, profile,
+        customization: String(profile.customization || "").trim(), sourceSnapshot,
+        totalPages: orderedSources.reduce((sum, source) => sum + source.pages.length + source.slides.length, 0),
+      }, ({ progress, message, job }) => {
+        set((current) => ({
+          generationProgress: progress, generationMessage: message, generationStage: job.stage,
+          generationPageRange: job.status === "RETRY_PENDING" ? current.generationPageRange : job.pageRange,
+          generationSectionTitle: job.status === "RETRY_PENDING" ? current.generationSectionTitle : job.sectionTitle,
+          generationCurrentFile: job.status === "RETRY_PENDING" ? current.generationCurrentFile : job.currentFile,
+          ...(job.status === "RETRY_PENDING" ? { generationProgress: current.generationProgress } : {}),
+        }));
       });
-      const tree = response.data.tree as any;
-      const createdAt = iso();
-      const nodes: KnowledgeNode[] = [];
-      const blocks: ContentBlock[] = [];
-      const walk = (items: any[], parentId: string | null) => items.forEach((item, index) => {
-        const nodeId = nanoid();
-        nodes.push({ id: nodeId, noteId: bundle.note.id, parentId, order: index, title: item.title, nodeType: item.nodeType, collapsed: false, sourceRefs: item.sourceRefs || [], userModified: false, createdAt, updatedAt: createdAt });
-        (item.blocks || []).forEach((block: any, blockIndex: number) => blocks.push({ id: nanoid(), nodeId, noteId: bundle.note.id, order: blockIndex, type: block.type, text: block.text, sourceRefs: block.sourceRefs || [], userModified: false, createdAt, updatedAt: createdAt }));
-        if (item.children?.length) walk(item.children, nodeId);
-      });
-      walk(tree.nodes, null);
-      const introduction = { ...response.data.introduction, noteId: bundle.note.id, generatedAt: createdAt, userModified: false } as LearningIntroduction;
-      const composedTree = composeLearningOpeningOutline(bundle, introduction, createdAt, { nodes, blocks });
-      const editorDoc = await writeExternalTree(bundle.note.id, composedTree.nodes, composedTree.blocks);
-      const nextTitle = tree.title || bundle.note.title;
-      const finishedAt = iso();
-      const lockedProfile = { ...profile, lockedAt: finishedAt, updatedAt: finishedAt };
-
-      const mapFromAI = (kind: LearningMap["kind"], value: { title: string; nodes: any[] }): LearningMap => {
-        const mapNodes: KnowledgeNode[] = [];
-        const mapBlocks: ContentBlock[] = [];
-        const mapWalk = (items: any[], parentId: string | null) => items.forEach((item, index) => {
-          const nodeId = nanoid();
-          mapNodes.push({ id: nodeId, noteId: bundle.note.id, parentId, order: index, title: item.title, nodeType: item.nodeType || "knowledge", collapsed: false, sourceRefs: item.sourceRefs || [], userModified: false, createdAt: finishedAt, updatedAt: finishedAt });
-          (item.blocks || []).forEach((block: any, blockIndex: number) => mapBlocks.push({ id: nanoid(), nodeId, noteId: bundle.note.id, order: blockIndex, type: block.type, text: block.text, sourceRefs: block.sourceRefs || [], userModified: false, createdAt: finishedAt, updatedAt: finishedAt }));
-          if (item.children?.length) mapWalk(item.children, nodeId);
-        });
-        mapWalk(value.nodes || [], null);
-        return { noteId: bundle.note.id, kind, editorDoc: nodesToTiptap(mapNodes, mapBlocks), nodes: mapNodes, blocks: mapBlocks, syncEnabled: false, revision: 1, createdAt: finishedAt, updatedAt: finishedAt };
-      };
-      const requirementMap = mapFromAI("requirements", response.data.requirements);
-      const questionMap = mapFromAI("questions", response.data.questions);
-      await Promise.all([upsertLearningMap(requirementMap), upsertLearningMap(questionMap), upsertIntroduction(introduction), upsertLearningProfile(lockedProfile)]);
-      await updateNote(bundle.note.id, { title: nextTitle, generationState: "completed", sourcesLockedAt: finishedAt, profileLockedAt: finishedAt, generatedAt: finishedAt, generationError: null });
-      await recordAIRequest({ id: nanoid(), noteId: bundle.note.id, operation: "full-learning-package", model: response.model, provider: state.provider, ...response.usage, estimatedCost: response.usage.estimatedCost, currency: response.usage.currency, status: "success", createdAt: finishedAt });
-      set((state) => state.bundle ? {
-        bundle: { ...state.bundle, note: { ...state.bundle.note, title: nextTitle, editorDoc, revision: (state.bundle.note.revision || 0) + 1, updatedAt: finishedAt, generationState: "completed", sourcesLockedAt: finishedAt, profileLockedAt: finishedAt, generatedAt: finishedAt }, introduction, profile: lockedProfile, nodes: composedTree.nodes, blocks: composedTree.blocks },
-        isGenerating: false, generationMessage: `知识树和两张学习地图已生成（${response.data.batchCount} 个资料批次）。`, generationProgress: 100,
-        selectedNodeId: composedTree.nodes[0]?.id || null, selectedBlockId: composedTree.blocks[0]?.id || null,
-      } : { isGenerating: false });
-      get().showToast("完整知识树、要求式地图和问题式地图已生成。", "success");
+      await applyGenerationResultToLocal(response, bundle.note.id, state.provider);
     } catch (error) {
       const message = error instanceof Error ? error.message : "生成知识树失败。";
+      const unavailable = (error as { code?: string }).code === "generation_poll_unavailable";
+      if (unavailable) {
+        set((current) => current.generationNoteId === bundle.note.id ? {
+          isGenerating: false, generationMessage: "", generationProgress: 0,
+          generationStage: "", generationPageRange: null, generationSectionTitle: null, generationCurrentFile: null, generationTotalPages: 0,
+        } : {});
+        useAppStore.getState().showToast("暂时无法读取后台任务状态。任务仍可能继续，重新打开这篇笔记会自动恢复。", "error");
+        return;
+      }
       await recordAIRequest({ id: nanoid(), noteId: bundle.note.id, operation: "full-learning-package", model: get().model, provider: state.provider, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, status: "error", error: message, createdAt: iso() });
-      await updateNote(bundle.note.id, { generationState: "failed", generationError: message });
-      set({ isGenerating: false, generationMessage: "", generationProgress: 0 });
-      get().showToast(message, "error");
+      await updateNote(bundle.note.id, { generationState: "failed", generationError: message, sourcesLockedAt: null, profileLockedAt: null });
+      set((current) => current.generationNoteId === bundle.note.id ? {
+        isGenerating: false, generationMessage: "", generationProgress: 0,
+        generationStage: "", generationPageRange: null, generationSectionTitle: null, generationCurrentFile: null,
+      } : {});
+      useAppStore.getState().showToast(message, "error");
+    }
+  },
+
+  resumeGenerationForNote: async (noteId) => {
+    if (generationWatchers.has(noteId)) return generationWatchers.get(noteId);
+    try {
+      const job = await getActiveFullLearningPackageJob(noteId);
+      if (!job) return;
+      set({
+        isGenerating: true, generationNoteId: noteId, generationMessage: job.message,
+        generationProgress: job.progress, generationStage: job.stage,
+        generationPageRange: job.pageRange, generationSectionTitle: job.sectionTitle,
+        generationCurrentFile: job.currentFile, generationTotalPages: job.totalPages,
+      });
+      await followPersistentGenerationJob(job, noteId);
+    } catch (error) {
+      console.warn("River generation recovery check failed", error);
     }
   },
 
@@ -1339,6 +1386,131 @@ export const useAppStore = create<AppState>((set, get) => ({
     }, 4200);
   },
 }));
+
+const generationWatchers = new Map<string, Promise<void>>();
+
+async function followPersistentGenerationJob(job: GenerationJob, noteId: string): Promise<void> {
+  const existing = generationWatchers.get(noteId);
+  if (existing) return existing;
+  const task = (async () => {
+    try {
+      const result = await waitForFullLearningPackage(job.jobId, ({ progress, message, job: current }) => {
+        useAppStore.setState((state) => state.generationNoteId === noteId ? {
+          generationProgress: current.status === "RETRY_PENDING" ? state.generationProgress : progress,
+          generationMessage: message, generationStage: current.stage,
+          generationPageRange: current.status === "RETRY_PENDING" ? state.generationPageRange : current.pageRange,
+          generationSectionTitle: current.status === "RETRY_PENDING" ? state.generationSectionTitle : current.sectionTitle,
+          generationCurrentFile: current.status === "RETRY_PENDING" ? state.generationCurrentFile : current.currentFile,
+          generationTotalPages: current.status === "RETRY_PENDING" ? state.generationTotalPages : current.totalPages,
+        } : {});
+      });
+      await applyGenerationResultToLocal(result, noteId, job.provider as AIProvider);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "后台生成任务失败。";
+      const unavailable = (error as { code?: string }).code === "generation_poll_unavailable";
+      if (!unavailable) await updateNote(noteId, { generationState: "failed", generationError: message, sourcesLockedAt: null, profileLockedAt: null });
+      useAppStore.setState((state) => state.generationNoteId === noteId ? {
+        isGenerating: false, generationMessage: "", generationProgress: 0,
+        generationStage: "", generationPageRange: null, generationSectionTitle: null, generationCurrentFile: null, generationTotalPages: 0,
+      } : {});
+      useAppStore.getState().showToast(unavailable ? "暂时无法读取后台任务状态。任务仍可能继续，重新打开这篇笔记会自动恢复。" : message, "error");
+    } finally {
+      generationWatchers.delete(noteId);
+      if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(`river.generation-job.${noteId}`);
+    }
+  })();
+  generationWatchers.set(noteId, task);
+  return task;
+}
+
+async function applyGenerationResultToLocal(
+  response: AIResponse<FullLearningPackageData>,
+  noteId: string,
+  provider: AIProvider,
+): Promise<void> {
+  const bundle = await getNoteBundle(noteId);
+  if (!bundle) throw new Error("目标笔记不存在，无法应用生成结果。");
+  const commit = response.data.commit;
+  let finalNodes: KnowledgeNode[];
+  let finalBlocks: ContentBlock[];
+  let finalNote: Note;
+  let finalProfile: LearningProfile | undefined;
+  let finalIntroduction: LearningIntroduction;
+
+  if (commit) {
+    await enqueueTreeSave(noteId, commit.nodes, commit.blocks, commit.note.editorDoc);
+    await Promise.all([
+      ...commit.learningMaps.map((map) => upsertLearningMap(map)),
+      upsertIntroduction(commit.introduction),
+      upsertLearningProfile(commit.profile),
+    ]);
+    const { id: _id, createdAt: _createdAt, folderId: _folderId, ...patch } = commit.note;
+    await updateNote(noteId, patch);
+    finalNodes = commit.nodes;
+    finalBlocks = commit.blocks;
+    finalNote = commit.note;
+    finalProfile = commit.profile;
+    finalIntroduction = commit.introduction;
+  } else {
+    const tree = response.data.tree as any;
+    const createdAt = iso();
+    const nodes: KnowledgeNode[] = [];
+    const blocks: ContentBlock[] = [];
+    const walk = (items: any[], parentId: string | null) => (items || []).forEach((item, index) => {
+      const nodeId = nanoid();
+      nodes.push({ id: nodeId, noteId, parentId, order: index, title: item.title, nodeType: item.nodeType, collapsed: false, sourceRefs: item.sourceRefs || [], userModified: false, createdAt, updatedAt: createdAt });
+      (item.blocks || []).forEach((block: any, blockIndex: number) => blocks.push({ id: nanoid(), nodeId, noteId, order: blockIndex, type: block.type, text: block.text, sourceRefs: block.sourceRefs || [], userModified: false, createdAt, updatedAt: createdAt }));
+      if (item.children?.length) walk(item.children, nodeId);
+    });
+    walk(tree.nodes, null);
+    finalIntroduction = { ...response.data.introduction, noteId, generatedAt: createdAt, userModified: false } as LearningIntroduction;
+    const composedTree = composeLearningOpeningOutline(bundle, finalIntroduction, createdAt, { nodes, blocks });
+    const editorDoc = await writeExternalTree(noteId, composedTree.nodes, composedTree.blocks);
+    const finishedAt = iso();
+    finalProfile = { ...bundle.profile!, lockedAt: finishedAt, updatedAt: finishedAt };
+    const mapFromAI = (kind: LearningMap["kind"], value: { title: string; nodes: any[] }): LearningMap => {
+      const mapNodes: KnowledgeNode[] = [];
+      const mapBlocks: ContentBlock[] = [];
+      const mapWalk = (items: any[], parentId: string | null) => (items || []).forEach((item, index) => {
+        const nodeId = nanoid();
+        mapNodes.push({ id: nodeId, noteId, parentId, order: index, title: item.title, nodeType: item.nodeType || "knowledge", collapsed: false, sourceRefs: item.sourceRefs || [], userModified: false, createdAt: finishedAt, updatedAt: finishedAt });
+        (item.blocks || []).forEach((block: any, blockIndex: number) => mapBlocks.push({ id: nanoid(), nodeId, noteId, order: blockIndex, type: block.type, text: block.text, sourceRefs: block.sourceRefs || [], userModified: false, createdAt: finishedAt, updatedAt: finishedAt }));
+        if (item.children?.length) mapWalk(item.children, nodeId);
+      });
+      mapWalk(value.nodes || [], null);
+      return { noteId, kind, editorDoc: nodesToTiptap(mapNodes, mapBlocks), nodes: mapNodes, blocks: mapBlocks, syncEnabled: false, revision: 1, createdAt: finishedAt, updatedAt: finishedAt };
+    };
+    await Promise.all([
+      upsertLearningMap(mapFromAI("requirements", response.data.requirements)),
+      upsertLearningMap(mapFromAI("questions", response.data.questions)),
+      upsertIntroduction(finalIntroduction), upsertLearningProfile(finalProfile),
+    ]);
+    const notePatch = { title: tree.title || bundle.note.title, editorDoc, revision: (bundle.note.revision || 0) + 1, updatedAt: finishedAt, generationState: "completed" as const, sourcesLockedAt: finishedAt, profileLockedAt: finishedAt, generatedAt: finishedAt, generationError: null };
+    await updateNote(noteId, notePatch);
+    finalNodes = composedTree.nodes;
+    finalBlocks = composedTree.blocks;
+    finalNote = { ...bundle.note, ...notePatch };
+  }
+
+  const finishedAt = finalNote.generatedAt || finalNote.updatedAt || iso();
+  await recordAIRequest({
+    id: nanoid(), noteId, operation: "full-learning-package", model: response.model, provider,
+    ...response.usage, estimatedCost: response.usage.estimatedCost, currency: response.usage.currency,
+    status: "success", createdAt: finishedAt,
+  });
+  if (commit) await adoptServerWorkspaceRevision();
+  else scheduleWorkspaceSync();
+
+  useAppStore.setState((state) => state.bundle?.note.id === noteId ? {
+    bundle: { ...state.bundle, note: { ...state.bundle.note, ...finalNote }, profile: finalProfile, introduction: finalIntroduction, nodes: finalNodes, blocks: finalBlocks },
+    isGenerating: false, generationNoteId: null,
+    generationMessage: `知识树和两张学习地图已生成（${response.data.batchCount} 个资料批次）。`, generationProgress: 100,
+    generationStage: "COMPLETED", generationPageRange: null, generationSectionTitle: null, generationCurrentFile: null, generationTotalPages: 0,
+    selectedNodeId: finalNodes[0]?.id || null, selectedBlockId: finalBlocks[0]?.id || null,
+  } : { isGenerating: false, generationNoteId: null });
+  await useAppStore.getState().refreshLibrary();
+  useAppStore.getState().showToast("完整知识树、要求式地图和问题式地图已生成。", "success");
+}
 
 function scheduleSave(get: () => AppState, set: (partial: Partial<AppState>) => void) {
   if (saveTimer) clearTimeout(saveTimer);

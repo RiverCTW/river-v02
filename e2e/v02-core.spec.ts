@@ -79,6 +79,6 @@ test("v0.2 exposes persistent resizable panes and read-only chat shell", async (
   const after = await page.locator(".river-v02-note-layout").evaluate((element) => getComputedStyle(element.querySelector(".river-resizable-split")!).gridTemplateColumns);
   expect(after).toBeTruthy();
   expect(before).toBeTruthy();
-  await expect(page.locator(".river-chat-panel")).toContainText("AI 只回答问题，不会修改笔记");
+  await expect(page.locator(".river-chat-panel")).toContainText("AI 只回答，不改笔记");
   await expect(page.locator(".river-learning-map-editors")).toBeVisible();
 });

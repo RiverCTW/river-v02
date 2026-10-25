@@ -190,8 +190,8 @@ test("Enter on empty bullets outdents, removes the bullet, and then creates a pl
 
   await expect.poll(async () => (await caret(page)).text).toBe("");
   let tree = await docTree(page);
-  expect(tree[1]?.children?.at(-1)?.text).toBe("");
-  expect(tree[1]?.children?.at(-1)?.marker).toBe(true);
+  expect(tree.at(-1)?.text).toBe("");
+  expect(tree.at(-1)?.marker).toBe(true);
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await caret(page)).text).toBe("");
   tree = await docTree(page);

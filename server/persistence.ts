@@ -12,6 +12,62 @@ export interface AuthUser {
   createdAt: string;
 }
 
+export type GenerationJobStatus =
+  | "QUEUED"
+  | "PARSING"
+  | "PLANNING"
+  | "GENERATING"
+  | "MERGING"
+  | "VALIDATING"
+  | "SAVING"
+  | "COMPLETED"
+  | "FAILED"
+  | "RETRY_PENDING"
+  | "NEEDS_INPUT";
+
+export interface GenerationJobRecord {
+  id: string;
+  userId: string;
+  noteId: string;
+  status: GenerationJobStatus;
+  stage: string;
+  progress: number;
+  message: string;
+  currentFile: string | null;
+  pageRange: string | null;
+  sectionTitle: string | null;
+  completedSections: number;
+  totalSections: number;
+  totalPages: number;
+  provider: string;
+  model: string;
+  payloadJson: unknown;
+  credentialCipher: string | null;
+  credentialIv: string | null;
+  credentialTag: string | null;
+  resultJson: unknown | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  retryCount: number;
+  leaseUntil: string | null;
+  heartbeatAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+}
+
+export interface GenerationJobInput {
+  id: string;
+  userId: string;
+  noteId: string;
+  provider: string;
+  model: string;
+  payloadJson: unknown;
+  credentialCipher: string;
+  credentialIv: string;
+  credentialTag: string;
+}
+
 interface UserRow {
   id: string;
   username: string;
@@ -82,7 +138,45 @@ export class RiverPersistence {
       );
       create index if not exists sessions_user_idx on sessions(user_id);
       create index if not exists sessions_expiry_idx on sessions(expires_at);
+      create table if not exists generation_jobs (
+        id text primary key,
+        user_id text not null,
+        note_id text not null,
+        status text not null,
+        stage text not null,
+        progress integer not null default 0,
+        message text not null default '',
+        current_file text,
+        page_range text,
+        section_title text,
+        completed_sections integer not null default 0,
+        total_sections integer not null default 0,
+        provider text not null,
+        model text not null,
+        payload_json text not null,
+        credential_cipher text,
+        credential_iv text,
+        credential_tag text,
+        result_json text,
+        error_code text,
+        error_message text,
+        retry_count integer not null default 0,
+        lease_until text,
+        heartbeat_at text,
+        created_at text not null,
+        updated_at text not null,
+        finished_at text
+      );
+      create index if not exists generation_jobs_note_idx on generation_jobs(user_id, note_id, status);
+      create index if not exists generation_jobs_status_idx on generation_jobs(status, updated_at);
+      create unique index if not exists generation_jobs_one_active_note_idx
+        on generation_jobs(user_id, note_id)
+        where status in ('QUEUED','PARSING','PLANNING','GENERATING','MERGING','VALIDATING','SAVING','RETRY_PENDING');
     `);
+    const generationColumns = this.db.prepare("pragma table_info(generation_jobs)").all() as Array<{ name: string }>;
+    if (!generationColumns.some((column) => column.name === "total_pages")) {
+      this.db.exec("alter table generation_jobs add column total_pages integer not null default 0");
+    }
     this.ensureBootstrapAdmin();
   }
 
@@ -150,6 +244,74 @@ export class RiverPersistence {
     return (this.db.prepare("select * from users order by created_at asc").all() as unknown as UserRow[]).map(publicUser);
   }
 
+  private generationJobFromRow(row: any): GenerationJobRecord {
+    return {
+      id: row.id, userId: row.user_id, noteId: row.note_id, status: row.status,
+      stage: row.stage, progress: Number(row.progress), message: row.message,
+      currentFile: row.current_file, pageRange: row.page_range, sectionTitle: row.section_title,
+      completedSections: Number(row.completed_sections), totalSections: Number(row.total_sections),
+      totalPages: Number(row.total_pages || 0),
+      provider: row.provider, model: row.model,
+      payloadJson: row.payload_json ? JSON.parse(row.payload_json) : null,
+      credentialCipher: row.credential_cipher, credentialIv: row.credential_iv, credentialTag: row.credential_tag,
+      resultJson: row.result_json ? JSON.parse(row.result_json) : null,
+      errorCode: row.error_code, errorMessage: row.error_message, retryCount: Number(row.retry_count),
+      leaseUntil: row.lease_until, heartbeatAt: row.heartbeat_at,
+      createdAt: row.created_at, updatedAt: row.updated_at, finishedAt: row.finished_at,
+    };
+  }
+
+  getGenerationJob(jobId: string, userId?: string): GenerationJobRecord | null {
+    const row = userId
+      ? this.db.prepare("select * from generation_jobs where id=? and user_id=?").get(jobId, userId)
+      : this.db.prepare("select * from generation_jobs where id=?").get(jobId);
+    return row ? this.generationJobFromRow(row) : null;
+  }
+
+  getActiveGenerationJob(userId: string, noteId: string): GenerationJobRecord | null {
+    const row = this.db.prepare(`
+      select * from generation_jobs where user_id=? and note_id=? and status in
+      ('QUEUED','PARSING','PLANNING','GENERATING','MERGING','VALIDATING','SAVING','RETRY_PENDING')
+      order by created_at desc limit 1
+    `).get(userId, noteId);
+    return row ? this.generationJobFromRow(row) : null;
+  }
+
+  createGenerationJob(input: GenerationJobInput): GenerationJobRecord {
+    const existing = this.getActiveGenerationJob(input.userId, input.noteId);
+    if (existing) return existing;
+    const now = nowIso();
+    this.db.prepare(`
+      insert into generation_jobs(id,user_id,note_id,status,stage,progress,message,completed_sections,total_sections,provider,model,payload_json,credential_cipher,credential_iv,credential_tag,retry_count,created_at,updated_at)
+      values(?,?,?,'QUEUED','queued',1,'等待后台任务开始',0,0,?,?,?,?,?,?,0,?,?)
+    `).run(input.id,input.userId,input.noteId,input.provider,input.model,JSON.stringify(input.payloadJson),input.credentialCipher,input.credentialIv,input.credentialTag,now,now);
+    return this.getGenerationJob(input.id, input.userId)!;
+  }
+
+  updateGenerationJob(id: string, changes: Partial<Omit<GenerationJobRecord, "id" | "userId" | "noteId" | "createdAt">>): GenerationJobRecord | null {
+    const existing = this.getGenerationJob(id);
+    if (!existing) return null;
+    const next: GenerationJobRecord = { ...existing, ...changes, updatedAt: nowIso() };
+    this.db.prepare(`
+      update generation_jobs set status=?,stage=?,progress=?,message=?,current_file=?,page_range=?,section_title=?,
+        completed_sections=?,total_sections=?,total_pages=?,credential_cipher=?,credential_iv=?,credential_tag=?,result_json=?,
+        error_code=?,error_message=?,retry_count=?,lease_until=?,heartbeat_at=?,updated_at=?,finished_at=? where id=?
+    `).run(next.status,next.stage,next.progress,next.message,next.currentFile,next.pageRange,next.sectionTitle,
+      next.completedSections,next.totalSections,next.totalPages,next.credentialCipher,next.credentialIv,next.credentialTag,
+      next.resultJson == null ? null : JSON.stringify(next.resultJson),next.errorCode,next.errorMessage,next.retryCount,
+      next.leaseUntil,next.heartbeatAt,next.updatedAt,next.finishedAt,id);
+    return this.getGenerationJob(id);
+  }
+
+  listRecoverableGenerationJobs(): GenerationJobRecord[] {
+    const rows = this.db.prepare(`
+      select * from generation_jobs where status in
+      ('QUEUED','PARSING','PLANNING','GENERATING','MERGING','VALIDATING','SAVING','RETRY_PENDING')
+      order by created_at asc
+    `).all() as any[];
+    return rows.map((row) => this.generationJobFromRow(row));
+  }
+
   firstAdmin(): AuthUser | null {
     const row = this.db.prepare("select * from users where role = 'admin' order by created_at asc limit 1").get() as UserRow | undefined;
     return row ? publicUser(row) : null;
@@ -195,7 +357,12 @@ export class RiverPersistence {
         .filter((source: any) => source.noteId === noteId)
         .sort((a: any, b: any) => Number(a.order || 0) - Number(b.order || 0))
         .map((source: any) => ({ id: source.id, fileName: source.fileName, order: source.order, parseStatus: source.parseStatus, textCharCount: source.textCharCount })));
-      const profileSignature = (payload: any) => JSON.stringify((payload.profiles || []).find((profile: any) => profile.noteId === noteId) || null);
+      const profileSignature = (payload: any) => {
+        const profile = (payload.profiles || []).find((item: any) => item.noteId === noteId);
+        if (!profile) return "null";
+        const { lockedAt: _lockedAt, createdAt: _createdAt, updatedAt: _updatedAt, ...inputs } = profile;
+        return JSON.stringify(inputs);
+      };
       if (sourceSignature(previous) !== sourceSignature(next) || profileSignature(previous) !== profileSignature(next)) {
         const error = new Error("这份笔记的资料或学习偏好已经锁定，服务端拒绝修改。") as Error & { status?: number; code?: string };
         error.status = 423;
@@ -220,6 +387,11 @@ export interface PersistenceAdapter {
   firstAdmin(): Promise<AuthUser | null>;
   getWorkspace(userId: string): Promise<{ revision: number; payload: unknown | null; updatedAt: string | null }>;
   putWorkspace(userId: string, expectedRevision: number, payload: unknown): Promise<{ revision: number; updatedAt: string }>;
+  getGenerationJob(jobId: string, userId?: string): Promise<GenerationJobRecord | null>;
+  getActiveGenerationJob(userId: string, noteId: string): Promise<GenerationJobRecord | null>;
+  createGenerationJob(input: GenerationJobInput): Promise<GenerationJobRecord>;
+  updateGenerationJob(id: string, changes: Partial<Omit<GenerationJobRecord, "id" | "userId" | "noteId" | "createdAt">>): Promise<GenerationJobRecord | null>;
+  listRecoverableGenerationJobs(): Promise<GenerationJobRecord[]>;
 }
 
 export async function createPersistence(): Promise<PersistenceAdapter> {
@@ -238,6 +410,11 @@ export async function createPersistence(): Promise<PersistenceAdapter> {
     firstAdmin: async () => sqlite.firstAdmin(),
     getWorkspace: async (userId) => sqlite.getWorkspace(userId),
     putWorkspace: async (userId, expectedRevision, payload) => sqlite.putWorkspace(userId, expectedRevision, payload),
+    getGenerationJob: async (jobId, userId) => sqlite.getGenerationJob(jobId, userId),
+    getActiveGenerationJob: async (userId, noteId) => sqlite.getActiveGenerationJob(userId, noteId),
+    createGenerationJob: async (input) => sqlite.createGenerationJob(input),
+    updateGenerationJob: async (id, changes) => sqlite.updateGenerationJob(id, changes),
+    listRecoverableGenerationJobs: async () => sqlite.listRecoverableGenerationJobs(),
   };
 }
 

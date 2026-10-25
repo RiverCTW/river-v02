@@ -248,11 +248,13 @@ export const OutlineListItem = ListItem.extend({
         if (position === null) return;
         const currentNode = editor.state.doc.nodeAt(position);
         if (!currentNode || currentNode.childCount < 2) return;
-        editor.view.dispatch(editor.state.tr.setNodeMarkup(position, undefined, {
+        const transaction = editor.state.tr.setNodeMarkup(position, undefined, {
           ...currentNode.attrs,
           collapsed: !currentNode.attrs.collapsed,
           updatedAt: new Date().toISOString(),
-        }));
+        });
+        transaction.setMeta("addToHistory", false);
+        editor.view.dispatch(transaction);
       });
 
       const dragHandle = document.createElement("span");
@@ -506,11 +508,14 @@ export const OutlineKeyboard = Extension.create({
   addProseMirrorPlugins() {
     const editor = this.editor;
     let suppressedRepeatKey: string | null = null;
+    let compositionEndedAt = 0;
     return [
       new Plugin({
         key: new PluginKey("outlineKeyboard"),
         props: {
           handleDOMEvents: {
+            compositionstart: () => { compositionEndedAt = 0; return false; },
+            compositionend: () => { compositionEndedAt = Date.now(); return false; },
             keyup: (_view, event) => {
               if (suppressedRepeatKey === event.key) suppressedRepeatKey = null;
               return false;
@@ -527,7 +532,7 @@ export const OutlineKeyboard = Extension.create({
           },
           handleKeyDown: (view, event) => {
             const native = event as KeyboardEvent & { isComposing?: boolean };
-            if (native.isComposing || native.keyCode === 229) return false;
+            if (native.isComposing || native.keyCode === 229 || Date.now() - compositionEndedAt < 40) return false;
             const target = event.target as HTMLElement | null;
             if (target?.closest("button, select, [contenteditable='false']")) return false;
             if (event.repeat && suppressedRepeatKey === event.key) {
@@ -599,10 +604,10 @@ export const OutlineKeyboard = Extension.create({
               // Effie creates a sibling after the hidden subtree only when
               // the parent is collapsed; expanded items split normally.
               const handled = !editor.state.selection.empty
-                ? splitItemAtSelection(editor)
+                ? splitItemAtSelection(editor, "sibling")
                 : current.node.attrs.collapsed
                   ? insertSiblingAfterSubtree(editor)
-                  : splitItemAtSelection(editor, itemHasVisibleMarker(current.node) ? "child" : "sibling");
+                  : splitItemAtSelection(editor, "sibling");
               if (handled) {
                 suppressedRepeatKey = event.key;
                 event.preventDefault();

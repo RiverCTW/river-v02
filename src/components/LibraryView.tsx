@@ -207,11 +207,7 @@ export function LibraryView() {
           <main className={`tmi-preview ${uiStyle === "notability" ? "tmi-preview-paper" : ""} ${focusMode ? "is-focus" : ""}`}>
             {editorLoading ? <div className="river-empty">正在载入笔记…</div> : selectedBundle ? (
               <div className="tmi-inline-editor">
-                <div className="tmi-inline-editor-head"><FolderIcon /><input className="river-input" value={libraryTitle} onChange={(event) => setLibraryTitle(event.target.value)} onBlur={() => void renameNoteAction(selectedBundle.note.id, libraryTitle)} aria-label="笔记标题" /><span className="river-location">{folders.find((folder) => folder.id === selectedBundle.note.folderId)?.name || "根目录"}</span><button className="river-button" onClick={() => {
-                  const folderOptions = folders.filter((folder) => !folder.deletedAt).map((folder) => `${folder.id}=${folder.name}`).join("\n");
-                  const value = window.prompt(`输入目标文件夹 ID（留空=根目录）\n${folderOptions}`, selectedBundle.note.folderId || "");
-                  if (value !== null) void moveNoteAction(selectedBundle.note.id, value.trim() || null);
-                }}>移动到…</button><button className="river-button" onClick={openSelectedNote}>独立笔记页</button></div>
+                <div className="tmi-inline-editor-head"><FolderIcon /><input className="river-input" value={libraryTitle} onChange={(event) => setLibraryTitle(event.target.value)} onBlur={() => void renameNoteAction(selectedBundle.note.id, libraryTitle)} aria-label="笔记标题" /><span className="river-location">{folders.find((folder) => folder.id === selectedBundle.note.folderId)?.name || "根目录"}</span><button className="river-button" onClick={openSelectedNote}>独立笔记页</button></div>
                 <OutlineEditor
                   bundle={selectedBundle}
                   instanceId={`library:${selectedBundle.note.id}`}

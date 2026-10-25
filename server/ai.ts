@@ -375,11 +375,19 @@ export async function generateCompleteLearningPackage(input: {
   sourceText: string;
   profile: unknown;
   introduction?: unknown;
-  onProgress?: (progress: number, message: string) => void;
+  customization?: string;
+  onProgress?: (progress: number, message: string, meta?: {
+    stage: string;
+    currentFile?: string;
+    pageRange?: string;
+    sectionTitle?: string;
+    completedSections?: number;
+    totalSections?: number;
+  }) => void;
 }) {
-  const report = (progress: number, message: string) => input.onProgress?.(progress, message);
+  const report = (progress: number, message: string, meta?: Parameters<NonNullable<typeof input.onProgress>>[2]) => input.onProgress?.(progress, message, meta);
   const profile = learningProfileSchema.parse(input.profile);
-  report(8, "正在生成学习开场…");
+  report(8, "正在生成学习开场…", { stage: "PARSING" });
   const introductionResponse = input.introduction
     ? null
     : await generateLearningOpening({
@@ -391,17 +399,30 @@ export async function generateCompleteLearningPackage(input: {
       profile,
     });
   const introduction = introductionResponse?.data || input.introduction as z.infer<typeof learningIntroductionSchema>;
-  report(22, "正在规划资料分章…");
+  report(22, "正在规划资料分章…", { stage: "PLANNING" });
   const batches = splitSourceBatches(input.sourceText);
   const trees: z.infer<typeof knowledgeTreeSchema>[] = [];
   const usages: UsageSummary[] = introductionResponse ? [introductionResponse.usage] : [];
   let model = input.model || defaultModelForProvider(input.provider);
 
   for (let index = 0; index < batches.length; index += 1) {
-    report(24 + Math.round((index / batches.length) * 32), `正在生成知识树第 ${index + 1}/${batches.length} 批…`);
+    const batch = batches[index];
+    const ranges = Array.from(batch.matchAll(/\[第\s*(\d+)\s*(页|张幻灯片)\]/g));
+    const first = ranges[0];
+    const last = ranges.at(-1);
+    const unit = first?.[2] === "张幻灯片" ? "张" : "页";
+    const pageRange = first && last ? (first[1] === last[1] ? `${first[1]} ${unit}` : `${first[1]}–${last[1]} ${unit}`) : undefined;
+    const fileMarkers = Array.from(batch.matchAll(/=== 资料\s*\d+：(.+?)\s*===/g));
+    const currentFile = fileMarkers.at(-1)?.[1]?.trim();
+    const batchHeading = batch.split("\n")
+      .map((line) => line.trim())
+      .find((line) => line && !line.startsWith("===") && !line.startsWith("[第 "))?.slice(0, 48);
+    report(24 + Math.round((index / batches.length) * 32), `正在处理第 ${index + 1}/${batches.length} 批资料${pageRange ? ` · ${pageRange}` : ""}`, {
+      stage: "GENERATING", currentFile, pageRange, sectionTitle: batchHeading || `第 ${index + 1}/${batches.length} 批`, completedSections: index, totalSections: batches.length,
+    });
     const response = await generateKnowledgeTree({
       ...input,
-      sourceText: batches[index],
+      sourceText: batch,
       introduction: {
         ...introduction,
         batch: index + 1,
@@ -420,11 +441,12 @@ export async function generateCompleteLearningPackage(input: {
     nodes: trees.flatMap((item) => item.nodes),
   };
   const treeContext = JSON.stringify(tree).slice(0, 60_000);
-  report(62, "知识树已生成，正在生成两张学习地图…");
+  report(62, "知识树已生成，正在生成两张学习地图…", { stage: "MERGING", completedSections: batches.length, totalSections: batches.length });
   const profileContext = [
     `学习意图：${profile.intent}`,
     `当前程度：${profile.level}${profile.customLevel ? `（${profile.customLevel}）` : ""}`,
     `学习用途：${profile.purpose}${profile.customPurpose ? `（${profile.customPurpose}）` : ""}`,
+    input.customization ? `个性化要求：${input.customization}` : "",
   ].join("\n");
 
   const mapRequest = async (kind: "requirements" | "questions") => generateStructured({
@@ -450,7 +472,7 @@ export async function generateCompleteLearningPackage(input: {
   });
 
   const [requirements, questions] = await Promise.all([mapRequest("requirements"), mapRequest("questions")]);
-  report(96, "正在校验并整理生成结果…");
+  report(96, "正在校验并整理生成结果…", { stage: "VALIDATING", completedSections: batches.length, totalSections: batches.length });
   const usage = [...usages, requirements.usage, questions.usage].reduce<UsageSummary>((sum, item) => ({
     inputTokens: sum.inputTokens + item.inputTokens,
     outputTokens: sum.outputTokens + item.outputTokens,

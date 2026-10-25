@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import pg from "pg";
-import type { AuthUser, UserRole } from "./persistence";
+import type { AuthUser, GenerationJobInput, GenerationJobRecord, UserRole } from "./persistence";
 
 interface UserRow {
   id: string;
@@ -70,6 +70,42 @@ export class PostgresPersistence {
         payload jsonb,
         updated_at timestamptz not null
       );
+      create table if not exists generation_jobs (
+        id text primary key,
+        user_id text not null references users(id) on delete cascade,
+        note_id text not null,
+        status text not null,
+        stage text not null,
+        progress integer not null default 0,
+        message text not null default '',
+        current_file text,
+        page_range text,
+        section_title text,
+        completed_sections integer not null default 0,
+        total_sections integer not null default 0,
+        total_pages integer not null default 0,
+        provider text not null,
+        model text not null,
+        payload_json jsonb not null,
+        credential_cipher text,
+        credential_iv text,
+        credential_tag text,
+        result_json jsonb,
+        error_code text,
+        error_message text,
+        retry_count integer not null default 0,
+        lease_until timestamptz,
+        heartbeat_at timestamptz,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        finished_at timestamptz
+      );
+      create index if not exists generation_jobs_note_idx on generation_jobs(user_id,note_id,status);
+      create index if not exists generation_jobs_status_idx on generation_jobs(status,updated_at);
+      alter table generation_jobs add column if not exists total_pages integer not null default 0;
+      create unique index if not exists generation_jobs_one_active_note_idx
+        on generation_jobs(user_id,note_id)
+        where status in ('QUEUED','PARSING','PLANNING','GENERATING','MERGING','VALIDATING','SAVING','RETRY_PENDING');
     `);
     const result = await this.pool.query<{ count: string }>("select count(*)::text as count from users");
     if (Number(result.rows[0]?.count || 0) === 0) {
@@ -151,6 +187,82 @@ export class PostgresPersistence {
     return { revision: Number(row.revision), payload: row.payload, updatedAt: new Date(row.updated_at).toISOString() };
   }
 
+  private jobFromRow(row: any): GenerationJobRecord {
+    return {
+      id: row.id, userId: row.user_id, noteId: row.note_id, status: row.status,
+      stage: row.stage, progress: Number(row.progress), message: row.message,
+      currentFile: row.current_file, pageRange: row.page_range, sectionTitle: row.section_title,
+      completedSections: Number(row.completed_sections), totalSections: Number(row.total_sections),
+      totalPages: Number(row.total_pages || 0),
+      provider: row.provider, model: row.model, payloadJson: row.payload_json,
+      credentialCipher: row.credential_cipher, credentialIv: row.credential_iv, credentialTag: row.credential_tag,
+      resultJson: row.result_json, errorCode: row.error_code, errorMessage: row.error_message,
+      retryCount: Number(row.retry_count), leaseUntil: row.lease_until ? new Date(row.lease_until).toISOString() : null,
+      heartbeatAt: row.heartbeat_at ? new Date(row.heartbeat_at).toISOString() : null,
+      createdAt: new Date(row.created_at).toISOString(), updatedAt: new Date(row.updated_at).toISOString(),
+      finishedAt: row.finished_at ? new Date(row.finished_at).toISOString() : null,
+    };
+  }
+
+  async getGenerationJob(jobId: string, userId?: string): Promise<GenerationJobRecord | null> {
+    const result = userId
+      ? await this.pool.query("select * from generation_jobs where id=$1 and user_id=$2", [jobId, userId])
+      : await this.pool.query("select * from generation_jobs where id=$1", [jobId]);
+    return result.rows[0] ? this.jobFromRow(result.rows[0]) : null;
+  }
+
+  async getActiveGenerationJob(userId: string, noteId: string): Promise<GenerationJobRecord | null> {
+    const result = await this.pool.query(`
+      select * from generation_jobs where user_id=$1 and note_id=$2 and status in
+      ('QUEUED','PARSING','PLANNING','GENERATING','MERGING','VALIDATING','SAVING','RETRY_PENDING')
+      order by created_at desc limit 1
+    `, [userId, noteId]);
+    return result.rows[0] ? this.jobFromRow(result.rows[0]) : null;
+  }
+
+  async createGenerationJob(input: GenerationJobInput): Promise<GenerationJobRecord> {
+    const existing = await this.getActiveGenerationJob(input.userId, input.noteId);
+    if (existing) return existing;
+    try {
+      const result = await this.pool.query(`
+        insert into generation_jobs(id,user_id,note_id,status,stage,progress,message,completed_sections,total_sections,provider,model,payload_json,credential_cipher,credential_iv,credential_tag,retry_count,created_at,updated_at)
+        values($1,$2,$3,'QUEUED','queued',1,'等待后台任务开始',0,0,$4,$5,$6::jsonb,$7,$8,$9,0,now(),now())
+        returning *
+      `, [input.id,input.userId,input.noteId,input.provider,input.model,JSON.stringify(input.payloadJson),input.credentialCipher,input.credentialIv,input.credentialTag]);
+      return this.jobFromRow(result.rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code !== "23505") throw error;
+      const active = await this.getActiveGenerationJob(input.userId, input.noteId);
+      if (!active) throw error;
+      return active;
+    }
+  }
+
+  async updateGenerationJob(id: string, changes: Partial<Omit<GenerationJobRecord, "id" | "userId" | "noteId" | "createdAt">>): Promise<GenerationJobRecord | null> {
+    const existing = await this.getGenerationJob(id);
+    if (!existing) return null;
+    const next: GenerationJobRecord = { ...existing, ...changes };
+    const result = await this.pool.query(`
+      update generation_jobs set status=$2,stage=$3,progress=$4,message=$5,current_file=$6,page_range=$7,section_title=$8,
+        completed_sections=$9,total_sections=$10,total_pages=$11,credential_cipher=$12,credential_iv=$13,credential_tag=$14,result_json=$15::jsonb,
+        error_code=$16,error_message=$17,retry_count=$18,lease_until=$19,heartbeat_at=$20,updated_at=now(),finished_at=$21
+      where id=$1 returning *
+    `, [id,next.status,next.stage,next.progress,next.message,next.currentFile,next.pageRange,next.sectionTitle,
+      next.completedSections,next.totalSections,next.totalPages,next.credentialCipher,next.credentialIv,next.credentialTag,
+      next.resultJson == null ? null : JSON.stringify(next.resultJson),next.errorCode,next.errorMessage,next.retryCount,
+      next.leaseUntil,next.heartbeatAt,next.finishedAt]);
+    return result.rows[0] ? this.jobFromRow(result.rows[0]) : null;
+  }
+
+  async listRecoverableGenerationJobs(): Promise<GenerationJobRecord[]> {
+    const result = await this.pool.query(`
+      select * from generation_jobs where status in
+      ('QUEUED','PARSING','PLANNING','GENERATING','MERGING','VALIDATING','SAVING','RETRY_PENDING')
+      order by created_at asc
+    `);
+    return result.rows.map((row) => this.jobFromRow(row));
+  }
+
   async putWorkspace(userId: string, expectedRevision: number, payload: unknown): Promise<{ revision: number; updatedAt: string }> {
     const client = await this.pool.connect();
     try {
@@ -192,7 +304,12 @@ export class PostgresPersistence {
         .filter((source: any) => source.noteId === noteId)
         .sort((a: any, b: any) => Number(a.order || 0) - Number(b.order || 0))
         .map((source: any) => ({ id: source.id, fileName: source.fileName, order: source.order, parseStatus: source.parseStatus, textCharCount: source.textCharCount })));
-      const profileSignature = (payload: any) => JSON.stringify((payload.profiles || []).find((profile: any) => profile.noteId === noteId) || null);
+      const profileSignature = (payload: any) => {
+        const profile = (payload.profiles || []).find((item: any) => item.noteId === noteId);
+        if (!profile) return "null";
+        const { lockedAt: _lockedAt, createdAt: _createdAt, updatedAt: _updatedAt, ...inputs } = profile;
+        return JSON.stringify(inputs);
+      };
       if (sourceSignature(previous) !== sourceSignature(next) || profileSignature(previous) !== profileSignature(next)) {
         const error = new Error("这份笔记的资料或学习偏好已经锁定，服务端拒绝修改。") as Error & { status?: number; code?: string };
         error.status = 423;
