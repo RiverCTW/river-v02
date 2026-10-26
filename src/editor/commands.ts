@@ -286,18 +286,40 @@ export function backspaceOutlineBoundary(editor: Editor): boolean {
     return true;
   }
 
-  const previous = findPreviousListItem(state.doc, current.pos);
-  if (!previous) return false;
-  const previousId = previous.id;
+  // Prefer the immediate previous sibling. If the empty item is the first
+  // child of a parent item, fall back to that parent instead of scanning the
+  // whole document: scanning would skip the parent (it contains the current
+  // item, so its end is after the caret) and jump to an unrelated earlier
+  // block above the parent.
+  const $current = state.doc.resolve(current.pos);
+  const parentList = $current.parent;
+  const itemIndex = $current.index();
+  let targetPos: number | null = null;
+  let targetParagraph: PMNode | null = null;
+
+  if (itemIndex > 0) {
+    const previousSibling = parentList.child(itemIndex - 1);
+    const previousParagraph = previousSibling.firstChild;
+    if (previousParagraph?.isTextblock) {
+      targetPos = current.pos - previousSibling.nodeSize;
+      targetParagraph = previousParagraph;
+    }
+  }
+  if (!targetParagraph && $current.depth >= 2) {
+    const ancestor = $current.node($current.depth - 1);
+    if (ancestor.type.name === "listItem") {
+      const ancestorParagraph = ancestor.firstChild;
+      if (ancestorParagraph?.isTextblock) {
+        targetPos = $current.before($current.depth - 1);
+        targetParagraph = ancestorParagraph;
+      }
+    }
+  }
+  if (targetPos === null || !targetParagraph) return false;
+
   const transaction = state.tr.delete(current.pos, current.pos + current.node.nodeSize);
   ensureDocumentNotEmpty(transaction);
-  const previousAfter = findListItemById(transaction.doc, previousId);
-  if (!previousAfter) {
-    editor.view.dispatch(transaction.scrollIntoView());
-    return true;
-  }
-  const previousParagraph = previousAfter.node.firstChild;
-  const caret = previousAfter.pos + 2 + (previousParagraph?.content.size || 0);
+  const caret = targetPos + 2 + targetParagraph.content.size;
   placeCaretNear(transaction, caret);
   editor.view.dispatch(transaction.scrollIntoView());
   return true;
