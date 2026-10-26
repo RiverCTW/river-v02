@@ -477,17 +477,21 @@ export function splitItemAtSelection(editor: Editor, placement: "sibling" | "chi
   const retainedChildren = item.node.content.cut(paragraph.nodeSize);
   const now = new Date().toISOString();
   const isBlock = item.node.attrs.itemType === "block";
-  const nextMarkerVisible = itemHasVisibleMarker(item.node);
+  // Effie turns an empty content line into a visible bullet when Enter is
+  // pressed, so repeated Enter walks out through bullets instead of creating
+  // invisible block after block. Non-empty blocks keep their block type.
+  const convertingEmptyBlock = isBlock && offset >= paragraph.content.size;
+  const nextMarkerVisible = convertingEmptyBlock ? true : isBlock ? false : itemHasVisibleMarker(item.node);
   const id = nanoid();
   const newSibling = listItemType.create(
     {
       ...item.node.attrs,
-      itemType: isBlock ? "block" : "knowledge",
-      nodeType: isBlock ? item.node.attrs.nodeType : "knowledge",
+      itemType: convertingEmptyBlock || !isBlock ? "knowledge" : "block",
+      nodeType: convertingEmptyBlock || !isBlock ? "knowledge" : item.node.attrs.nodeType,
       headingLevel: 0,
       markerVisible: nextMarkerVisible,
-      nodeId: isBlock ? null : id,
-      blockId: isBlock ? id : null,
+      nodeId: convertingEmptyBlock || !isBlock ? id : null,
+      blockId: isBlock && !convertingEmptyBlock ? id : null,
       collapsed: false,
       sourceRefs: [],
       userModified: true,
