@@ -370,17 +370,24 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 2px 12px;
   border-bottom: 1px solid light-dark(#e6e1d8, #2b3135);
   background: light-dark(rgba(255, 253, 249, 0.96), rgba(24, 28, 31, 0.96));
   backdrop-filter: blur(14px);
 }
 
 .river-outline-toolbar > .river-chip-row { min-width: 0; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: thin; }
-.river-outline-toolbar .river-format-chip { flex: 0 0 auto; }
+.river-outline-toolbar .river-format-chip { flex: 0 0 auto; height: 20px; min-width: 32px; }
 
 .river-outline-toolbar .river-chip {
-  padding: 5px 7px;
+  padding: 1px 6px;
+  font-size: 9px;
+  line-height: 16px;
+}
+
+.river-outline-toolbar .river-focus-button {
+  min-height: 20px;
+  padding: 2px 8px;
   font-size: 9px;
 }
 
@@ -1610,6 +1617,13 @@ button {
 
 .river-companion-panel { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid light-dark(#ded9d0, #2b3135); border-radius: 10px; background: light-dark(#fffdf9, #181c1f); }
 .river-materials-panel { padding: 10px 11px 8px; border-bottom: 1px solid light-dark(#e5e0d8, #2d3438); }
+.river-materials-panel.is-collapsed { padding-bottom: 7px; }
+.river-materials-panel.is-collapsed .river-companion-heading { margin-bottom: 0; }
+.river-materials-panel.is-collapsed .river-companion-dropzone,
+.river-materials-panel.is-collapsed .river-source-list { display: none; }
+.river-materials-actions { display: flex; align-items: center; gap: 8px; }
+.river-materials-toggle { padding: 2px 4px; border: 0; background: transparent; color: #2f6f6b; font: inherit; font-size: 10px; cursor: pointer; }
+.river-materials-toggle:hover { text-decoration: underline; }
 .river-companion-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
 .river-companion-heading b { font-size: 11px; }
 .river-companion-dropzone { display: flex; align-items: center; gap: 7px; min-height: 38px; padding: 7px 9px; border: 1px dashed light-dark(#cfc8ba, #465156); border-radius: 7px; color: light-dark(#817b72, #9fa9ad); font-size: 9px; cursor: pointer; }
