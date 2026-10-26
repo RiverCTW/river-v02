@@ -986,42 +986,20 @@ button {
 .river-outline-item.is-drop-after::after {
   content: "";
   position: absolute;
-  z-index: 6;
+  z-index: 5;
   left: 0;
   right: 0;
-  height: 3px;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #2f6f6b, #3e8cc1);
-  box-shadow: 0 0 0 1px rgba(47, 111, 107, 0.18);
+  height: 2px;
+  border-radius: 2px;
+  background: #3e8cc1;
   pointer-events: none;
 }
 
 .river-outline-item.is-dragging {
-  outline: 2px dashed light-dark(#b9b3aa, #56636a);
-  outline-offset: 2px;
+  opacity: 0.42;
 }
 
-.river-drag-ghost {
-  position: fixed;
-  left: 0;
-  top: 0;
-  z-index: 9999;
-  max-width: 420px;
-  padding: 7px 12px;
-  border: 1px solid light-dark(#cfd8d6, #3a454a);
-  border-radius: 8px;
-  background: light-dark(#fffffe, #1d2326);
-  box-shadow: 0 12px 28px rgba(20, 30, 34, 0.2), 0 2px 6px rgba(20, 30, 34, 0.12);
-  color: light-dark(#2c3236, #dfe6e9);
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-  opacity: 0.97;
-  transform: translate3d(-9999px, -9999px, 0);
-}
+
 
 .river-outline-item.is-drop-before::before {
   top: -2px;
@@ -1073,31 +1051,23 @@ button {
 
 .river-outline-drag-handle {
   position: absolute;
-  left: -20px;
+  left: -15px;
   top: 50%;
   transform: translateY(-50%);
   display: inline-grid;
   place-items: center;
-  width: 20px;
-  height: 32px;
-  opacity: 0.16;
-  color: light-dark(#8f8980, #8b959b);
-  font-size: 12px;
+  width: 12px;
+  height: 24px;
+  opacity: 0;
+  color: light-dark(#a7a29a, #778087);
+  font-size: 10px;
   cursor: grab;
   user-select: none;
-  touch-action: none;
-  transition: opacity 120ms ease, background 120ms ease;
+  transition: opacity 120ms ease;
 }
 
 .river-outline-item:hover .river-outline-drag-handle {
-  opacity: 0.9;
-  background: light-dark(#efece6, #2b3236);
-  border-radius: 6px;
-}
-
-.river-outline-drag-handle:hover {
-  opacity: 1;
-  color: #2f6f6b;
+  opacity: 0.75;
 }
 
 .river-outline-drag-handle:active {
@@ -1592,14 +1562,16 @@ button {
 .river-v02-note-layout.is-focus { height: calc(100vh - 96px); }
 .river-resizable-split { display: grid; width: 100%; height: 100%; min-height: 0; min-width: 0; }
 .river-split-pane { min-width: 0; min-height: 0; overflow: hidden; }
-.river-split-divider { position: relative; z-index: 4; border-radius: 3px; background: transparent; touch-action: none; }
+.river-split-divider { position: relative; z-index: 4; border-radius: 6px; background: transparent; touch-action: none; }
 .river-resizable-split.is-horizontal > .river-split-divider { cursor: col-resize; }
 .river-resizable-split.is-vertical > .river-split-divider { cursor: row-resize; }
-.river-split-divider::after { content: ""; position: absolute; border-radius: 3px; background: light-dark(#d9d5cd, #343b3f); opacity: 0; transition: opacity 120ms ease; }
-.river-resizable-split.is-horizontal > .river-split-divider::after { top: 12px; bottom: 12px; left: 3px; width: 2px; }
-.river-resizable-split.is-vertical > .river-split-divider::after { top: 3px; right: 12px; left: 12px; height: 2px; }
-.river-split-divider:hover::after, .is-resizing-split .river-split-divider::after { opacity: 1 !important; }
-.is-resizing-split { cursor: grabbing; user-select: none; }
+.river-split-divider::after { content: ""; position: absolute; border-radius: 4px; background: light-dark(#d9d5cd, #343b3f); opacity: 0.4; transition: opacity 120ms ease, background 120ms ease; }
+.river-resizable-split.is-horizontal > .river-split-divider::after { top: 16px; bottom: 16px; left: 4px; width: 4px; }
+.river-resizable-split.is-vertical > .river-split-divider::after { top: 4px; right: 16px; left: 16px; height: 4px; }
+.river-split-divider:hover::after, .is-resizing-split .river-split-divider::after { opacity: 1 !important; background: #2f6f6b; }
+.is-resizing-split { user-select: none; }
+.is-resizing-col, .is-resizing-col * { cursor: col-resize !important; }
+.is-resizing-row, .is-resizing-row * { cursor: row-resize !important; }
 .river-v02-note-main { display: flex; flex-direction: column; height: 100%; min-width: 0; overflow: hidden; border: 1px solid light-dark(#ded9d0, #2b3135); border-radius: 10px; background: light-dark(#fffdf9, #181c1f); }
 .river-note-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 8px 12px; border-bottom: 1px solid light-dark(#e4dfd7, #2c3337); }
 .river-note-location { display: flex; align-items: center; gap: 7px; min-width: 0; }
@@ -1691,7 +1663,7 @@ button {
 @media (max-width: 980px) {
   .river-resizable-split.is-horizontal {
     grid-template-columns: 1fr !important;
-    grid-template-rows: minmax(0, 58%) 8px minmax(0, 42%) !important;
+    grid-template-rows: minmax(0, 58%) 12px minmax(0, 42%) !important;
   }
 
   .river-resizable-split.is-horizontal > .river-split-divider {
