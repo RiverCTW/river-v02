@@ -284,57 +284,130 @@ export const OutlineListItem = ListItem.extend({
         const position = currentPosition(getPos);
         if (position !== null) selectStructuralItem(editor, position);
       };
-      dragHandle.addEventListener("mousedown", (event) => {
+      // Pointer-based drag: large hit area, ghost preview, drop marker and
+      // edge auto-scroll. Pointer capture keeps the gesture alive even when the
+      // pointer leaves the handle or the viewport.
+      dragHandle.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
         event.preventDefault();
         event.stopPropagation();
         selectItem();
+        try { dragHandle.setPointerCapture(event.pointerId); } catch { /* ignore */ }
 
         const startX = event.clientX;
         const startY = event.clientY;
-        let pointerDragging = false;
+        let lastX = startX;
+        let lastY = startY;
+        let dragging = false;
+        let ghost: HTMLElement | null = null;
         let lastTargetId: string | null = null;
         let lastPlacement: "before" | "after" = "after";
+        let raf = 0;
+
+        const scrollParent = (() => {
+          let element = wrapper.parentElement;
+          while (element) {
+            const style = window.getComputedStyle(element);
+            if (/(auto|scroll)/.test(style.overflowY) && element.scrollHeight > element.clientHeight + 4) return element;
+            element = element.parentElement;
+          }
+          return document.scrollingElement as HTMLElement | null;
+        })();
 
         const clearDropMarkers = () => {
           document.querySelectorAll(".river-outline-item.is-drop-before, .river-outline-item.is-drop-after").forEach((element) => {
             element.classList.remove("is-drop-before", "is-drop-after");
           });
         };
+
         const targetAt = (clientX: number, clientY: number) => {
           const stack = document.elementsFromPoint(clientX, clientY) as HTMLElement[];
           return stack
             .map((element) => element.closest<HTMLElement>(".river-outline-item"))
-            .find((candidate): candidate is HTMLElement => Boolean(candidate && candidate !== wrapper)) || null;
+            .find((candidate): candidate is HTMLElement => Boolean(candidate && candidate !== wrapper && !candidate.classList.contains("river-drag-ghost"))) || null;
         };
-        const handlePointerMove = (moveEvent: MouseEvent) => {
-          if (!pointerDragging && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 4) return;
-          pointerDragging = true;
-          moveEvent.preventDefault();
-          moveEvent.stopPropagation();
-          wrapper.classList.add("is-dragging");
+
+        const ghostLabel = () => {
+          const title = wrapper.querySelector(":scope > .river-outline-content > p")?.textContent?.trim() || "";
+          const extra = wrapper.querySelector(":scope > .river-outline-content > ul > li > .river-outline-content > p")?.textContent?.trim() || "";
+          const text = [title, extra].filter(Boolean).join(" · ");
+          return text.length > 70 ? `${text.slice(0, 70)}…` : text || "拖动中";
+        };
+
+        const ensureGhost = () => {
+          if (ghost) return;
+          ghost = document.createElement("div");
+          ghost.className = "river-drag-ghost";
+          ghost.textContent = ghostLabel();
+          document.body.append(ghost);
+        };
+
+        const moveGhost = () => {
+          if (!ghost) return;
+          ghost.style.transform = `translate3d(${lastX + 14}px, ${lastY + 10}px, 0)`;
+        };
+
+        const updateHover = () => {
           clearDropMarkers();
-          const targetElement = targetAt(moveEvent.clientX, moveEvent.clientY);
-          if (!targetElement || targetElement === wrapper) return;
+          const targetElement = targetAt(lastX, lastY);
+          if (!targetElement) { lastTargetId = null; return; }
           const targetId = targetElement.dataset.nodeId || targetElement.dataset.blockId;
-          if (!targetId || targetId === stableId) return;
+          if (!targetId || targetId === stableId) { lastTargetId = null; return; }
           const bounds = targetElement.getBoundingClientRect();
           lastTargetId = targetId;
-          lastPlacement = moveEvent.clientY < bounds.top + bounds.height * 0.65 ? "before" : "after";
+          lastPlacement = lastY < bounds.top + bounds.height * 0.62 ? "before" : "after";
           targetElement.classList.add(lastPlacement === "before" ? "is-drop-before" : "is-drop-after");
         };
-        const handlePointerUp = (upEvent: MouseEvent) => {
-          upEvent.preventDefault();
-          upEvent.stopPropagation();
-          window.removeEventListener("mousemove", handlePointerMove, true);
-          window.removeEventListener("mouseup", handlePointerUp, true);
-          wrapper.classList.remove("is-dragging");
-          if (pointerDragging) {
-            if (lastTargetId && lastTargetId !== stableId) moveSubtree(editor, stableId, lastTargetId, lastPlacement);
+
+        const autoScroll = () => {
+          if (!dragging || !scrollParent) return;
+          const bounds = scrollParent === document.scrollingElement
+            ? { top: 0, bottom: window.innerHeight }
+            : scrollParent.getBoundingClientRect();
+          const edge = 72;
+          let delta = 0;
+          if (lastY < bounds.top + edge) delta = -Math.min(18, Math.ceil((bounds.top + edge - lastY) / 5));
+          else if (lastY > bounds.bottom - edge) delta = Math.min(18, Math.ceil((lastY - (bounds.bottom - edge)) / 5));
+          if (delta) {
+            scrollParent.scrollTop += delta;
+            updateHover();
           }
-          clearDropMarkers();
+          raf = requestAnimationFrame(autoScroll);
         };
-        window.addEventListener("mousemove", handlePointerMove, true);
-        window.addEventListener("mouseup", handlePointerUp, true);
+
+        const handlePointerMove = (moveEvent: PointerEvent) => {
+          lastX = moveEvent.clientX;
+          lastY = moveEvent.clientY;
+          if (!dragging && Math.hypot(lastX - startX, lastY - startY) < 4) return;
+          if (!dragging) {
+            dragging = true;
+            wrapper.classList.add("is-dragging");
+            ensureGhost();
+            raf = requestAnimationFrame(autoScroll);
+          }
+          moveEvent.preventDefault();
+          moveGhost();
+          updateHover();
+        };
+
+        const finish = (upEvent: PointerEvent) => {
+          try { dragHandle.releasePointerCapture(upEvent.pointerId); } catch { /* ignore */ }
+          window.removeEventListener("pointermove", handlePointerMove, true);
+          window.removeEventListener("pointerup", finish, true);
+          window.removeEventListener("pointercancel", finish, true);
+          cancelAnimationFrame(raf);
+          wrapper.classList.remove("is-dragging");
+          ghost?.remove();
+          ghost = null;
+          clearDropMarkers();
+          if (dragging && lastTargetId && lastTargetId !== stableId) {
+            moveSubtree(editor, stableId, lastTargetId, lastPlacement);
+          }
+        };
+
+        window.addEventListener("pointermove", handlePointerMove, true);
+        window.addEventListener("pointerup", finish, true);
+        window.addEventListener("pointercancel", finish, true);
       });
       dragHandle.addEventListener("dragstart", (event) => {
         const stableId = String(node.attrs.nodeId || node.attrs.blockId || "");

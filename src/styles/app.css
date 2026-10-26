@@ -986,13 +986,41 @@ button {
 .river-outline-item.is-drop-after::after {
   content: "";
   position: absolute;
-  z-index: 5;
+  z-index: 6;
   left: 0;
   right: 0;
-  height: 2px;
-  border-radius: 2px;
-  background: #3e8cc1;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #2f6f6b, #3e8cc1);
+  box-shadow: 0 0 0 1px rgba(47, 111, 107, 0.18);
   pointer-events: none;
+}
+
+.river-outline-item.is-dragging {
+  outline: 2px dashed light-dark(#b9b3aa, #56636a);
+  outline-offset: 2px;
+}
+
+.river-drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 9999;
+  max-width: 420px;
+  padding: 7px 12px;
+  border: 1px solid light-dark(#cfd8d6, #3a454a);
+  border-radius: 8px;
+  background: light-dark(#fffffe, #1d2326);
+  box-shadow: 0 12px 28px rgba(20, 30, 34, 0.2), 0 2px 6px rgba(20, 30, 34, 0.12);
+  color: light-dark(#2c3236, #dfe6e9);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0.97;
+  transform: translate3d(-9999px, -9999px, 0);
 }
 
 .river-outline-item.is-drop-before::before {
@@ -1045,23 +1073,31 @@ button {
 
 .river-outline-drag-handle {
   position: absolute;
-  left: -15px;
+  left: -20px;
   top: 50%;
   transform: translateY(-50%);
   display: inline-grid;
   place-items: center;
-  width: 12px;
-  height: 24px;
-  opacity: 0;
-  color: light-dark(#a7a29a, #778087);
-  font-size: 10px;
+  width: 20px;
+  height: 32px;
+  opacity: 0.16;
+  color: light-dark(#8f8980, #8b959b);
+  font-size: 12px;
   cursor: grab;
   user-select: none;
-  transition: opacity 120ms ease;
+  touch-action: none;
+  transition: opacity 120ms ease, background 120ms ease;
 }
 
 .river-outline-item:hover .river-outline-drag-handle {
-  opacity: 0.75;
+  opacity: 0.9;
+  background: light-dark(#efece6, #2b3236);
+  border-radius: 6px;
+}
+
+.river-outline-drag-handle:hover {
+  opacity: 1;
+  color: #2f6f6b;
 }
 
 .river-outline-drag-handle:active {
