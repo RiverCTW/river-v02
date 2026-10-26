@@ -257,8 +257,7 @@ export const OutlineListItem = ListItem.extend({
       const toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "river-outline-toggle";
-      toggle.addEventListener("mousedown", (event) => event.preventDefault());
-      toggle.addEventListener("click", () => {
+      const toggleCollapse = () => {
         const position = currentPosition(getPos);
         if (position === null) return;
         const currentNode = editor.state.doc.nodeAt(position);
@@ -272,7 +271,7 @@ export const OutlineListItem = ListItem.extend({
         });
         transaction.setMeta("addToHistory", false);
         editor.view.dispatch(transaction);
-      });
+      };
 
       const dragHandle = document.createElement("span");
       dragHandle.className = "river-outline-drag-handle";
@@ -287,12 +286,13 @@ export const OutlineListItem = ListItem.extend({
       // Pointer-based drag: large hit area, ghost preview, drop marker and
       // edge auto-scroll. Pointer capture keeps the gesture alive even when the
       // pointer leaves the handle or the viewport.
-      dragHandle.addEventListener("pointerdown", (event) => {
+      const beginItemDrag = (event: PointerEvent, onTap?: () => void) => {
         if (event.button !== 0) return;
         event.preventDefault();
         event.stopPropagation();
         selectItem();
-        try { dragHandle.setPointerCapture(event.pointerId); } catch { /* ignore */ }
+        const captureTarget = event.currentTarget as HTMLElement;
+        try { captureTarget.setPointerCapture(event.pointerId); } catch { /* ignore */ }
 
         const startX = event.clientX;
         const startY = event.clientY;
@@ -391,7 +391,7 @@ export const OutlineListItem = ListItem.extend({
         };
 
         const finish = (upEvent: PointerEvent) => {
-          try { dragHandle.releasePointerCapture(upEvent.pointerId); } catch { /* ignore */ }
+          try { captureTarget.releasePointerCapture(upEvent.pointerId); } catch { /* ignore */ }
           window.removeEventListener("pointermove", handlePointerMove, true);
           window.removeEventListener("pointerup", finish, true);
           window.removeEventListener("pointercancel", finish, true);
@@ -402,13 +402,19 @@ export const OutlineListItem = ListItem.extend({
           clearDropMarkers();
           if (dragging && lastTargetId && lastTargetId !== stableId) {
             moveSubtree(editor, stableId, lastTargetId, lastPlacement);
+          } else if (!dragging && onTap) {
+            onTap();
           }
         };
 
         window.addEventListener("pointermove", handlePointerMove, true);
         window.addEventListener("pointerup", finish, true);
         window.addEventListener("pointercancel", finish, true);
-      });
+      };
+
+      dragHandle.addEventListener("pointerdown", (event) => beginItemDrag(event));
+      // Grabbing the visible dot should drag the item; a tap still collapses it.
+      toggle.addEventListener("pointerdown", (event) => beginItemDrag(event, toggleCollapse));
       dragHandle.addEventListener("dragstart", (event) => {
         const stableId = String(node.attrs.nodeId || node.attrs.blockId || "");
         event.stopPropagation();
