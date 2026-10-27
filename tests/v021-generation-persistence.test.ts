@@ -36,7 +36,7 @@ describe("River v0.21 durable full-package jobs", () => {
       const requestBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       const system = String(requestBody.messages?.[0]?.content || "");
       modelCalls += 1;
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await new Promise((resolve) => setTimeout(resolve, 80));
       const payload = system.includes("学习开场设计器")
         ? { mapSections: [{ title: "章节", role: "intro", summary: "说明" }], goals: ["理解"], goalQuestions: ["是什么？"], positioning: "定位", prerequisiteNotes: [] }
         : system.includes("知识树生成器")
@@ -103,10 +103,48 @@ describe("River v0.21 durable full-package jobs", () => {
     expect(modelCalls).toBe(4);
 
     const savedResponse = await fetch(`${appBase}/api/workspace`, { headers: auth });
-    const saved = (await savedResponse.json()).payload;
+    const savedWorkspace = await savedResponse.json();
+    const saved = savedWorkspace.payload;
     expect(saved.notes.find((note: any) => note.id === "note-a").generationState).toBe("completed");
     expect(saved.notes.find((note: any) => note.id === "note-a").profileLockedAt).toBeTruthy();
     expect(saved.nodes.length).toBeGreaterThan(0);
     expect(saved.learningMaps.map((map: any) => map.kind).sort()).toEqual(["questions", "requirements"]);
+
+    const missing = await fetch(`${appBase}/api/ai/full-package`, {
+      method: "POST", headers: { ...auth, "x-ai-provider": "deepseek", "x-ai-api-key": "sk-test" },
+      body: JSON.stringify({ ...startBody, noteId: "does-not-exist" }),
+    });
+    expect(missing.status).toBe(409);
+    expect((await missing.json()).error.code).toBe("workspace_note_missing");
+
+    const noteB = { id: "note-b", title: "生成期间暂时缺失的笔记", uiStyle: "effie", generationState: "draft", createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" };
+    const sourceB = { ...workspace.sources[0], id: "source-b", noteId: "note-b", fileName: "LCA-B.pdf" };
+    const profileB = { ...workspace.profiles[0], noteId: "note-b" };
+    const withNoteB = { ...saved, notes: [...saved.notes, noteB], sources: [...saved.sources, sourceB], profiles: [...saved.profiles, profileB] };
+    const noteBPut = await fetch(`${appBase}/api/workspace`, { method: "PUT", headers: auth, body: JSON.stringify({ expectedRevision: savedWorkspace.revision, payload: withNoteB }) });
+    expect(noteBPut.status).toBe(200);
+
+    const startB = await fetch(`${appBase}/api/ai/full-package`, {
+      method: "POST", headers: { ...auth, "x-ai-provider": "deepseek", "x-ai-api-key": "sk-test" },
+      body: JSON.stringify({ ...startBody, noteId: "note-b", profile: profileB }),
+    });
+    expect(startB.status).toBe(202);
+    const jobB = await startB.json();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const noteBWorkspace = await (await fetch(`${appBase}/api/workspace`, { headers: auth })).json();
+    const withoutNoteB = { ...noteBWorkspace.payload, notes: noteBWorkspace.payload.notes.filter((note: any) => note.id !== "note-b") };
+    const removeB = await fetch(`${appBase}/api/workspace`, { method: "PUT", headers: auth, body: JSON.stringify({ expectedRevision: noteBWorkspace.revision, payload: withoutNoteB }) });
+    expect(removeB.status).toBe(200);
+
+    let completedB: any = null;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const response = await fetch(`${appBase}/api/ai/full-package/${jobB.jobId}`, { headers: auth });
+      completedB = await response.json();
+      if (completedB.status === "COMPLETED" || completedB.status === "FAILED") break;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    expect(completedB?.status).toBe("COMPLETED");
+    const recovered = (await (await fetch(`${appBase}/api/workspace`, { headers: auth })).json()).payload;
+    expect(recovered.notes.find((note: any) => note.id === "note-b")?.generationState).toBe("completed");
   });
 });

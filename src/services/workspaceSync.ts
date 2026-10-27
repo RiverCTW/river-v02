@@ -1,4 +1,4 @@
-import { createBackupPayload, restoreBackupPayload } from "../db/backup";
+import { createBackupPayload, deserializeSourcesFromBackup, restoreBackupPayload } from "../db/backup";
 import { db } from "../db/database";
 import { authHeaders } from "./sessionAuth";
 
@@ -26,6 +26,58 @@ function revisionKey(userId: string) {
 
 function payloadSignature(payload: any) {
   return JSON.stringify({ ...payload, exportedAt: null });
+}
+
+function recordTime(item: any): number {
+  const value = item?.updatedAt || item?.createdAt || item?.generatedAt || item?.lastOpenedAt;
+  const parsed = value ? Date.parse(value) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mergeRecords(localItems: any[] = [], remoteItems: any[] = [], keyOf: (item: any) => string) {
+  const items = new Map<string, any>();
+  for (const item of remoteItems) items.set(keyOf(item), item);
+  for (const item of localItems) {
+    const key = keyOf(item);
+    const remote = items.get(key);
+    if (!remote || recordTime(item) >= recordTime(remote)) items.set(key, item);
+  }
+  return [...items.values()];
+}
+
+export function mergeWorkspacePayloads(local: any, remote: any) {
+  const base = remote || local || {};
+  const byId = (item: any) => String(item?.id || "");
+  const byNote = (item: any) => String(item?.noteId || item?.key || "");
+  return {
+    ...local,
+    ...base,
+    folders: mergeRecords(local?.folders, remote?.folders, byId),
+    notes: mergeRecords(local?.notes, remote?.notes, byId),
+    sources: mergeRecords(local?.sources, remote?.sources, byId),
+    profiles: mergeRecords(local?.profiles, remote?.profiles, byNote),
+    introductions: mergeRecords(local?.introductions, remote?.introductions, byNote),
+    nodes: mergeRecords(local?.nodes, remote?.nodes, byId),
+    blocks: mergeRecords(local?.blocks, remote?.blocks, byId),
+    settings: mergeRecords(local?.settings, remote?.settings, (item) => String(item?.key || "")),
+    learningMaps: mergeRecords(local?.learningMaps, remote?.learningMaps, (item) => `${item?.noteId || ""}:${item?.kind || ""}`),
+    chatMessages: mergeRecords(local?.chatMessages, remote?.chatMessages, byId),
+  };
+}
+
+async function mergeWorkspaceIntoLocal(payload: any) {
+  await db.transaction("rw", [db.folders, db.notes, db.sources, db.profiles, db.introductions, db.nodes, db.blocks, db.settings, db.learningMaps, db.chatMessages], async () => {
+    await db.folders.bulkPut(payload.folders || []);
+    await db.notes.bulkPut(payload.notes || []);
+    await db.sources.bulkPut(deserializeSourcesFromBackup(payload.sources || []));
+    await db.profiles.bulkPut(payload.profiles || []);
+    await db.introductions.bulkPut(payload.introductions || []);
+    await db.nodes.bulkPut(payload.nodes || []);
+    await db.blocks.bulkPut(payload.blocks || []);
+    await db.settings.bulkPut(payload.settings || []);
+    await db.learningMaps.bulkPut(payload.learningMaps || []);
+    await db.chatMessages.bulkPut(payload.chatMessages || []);
+  });
 }
 
 function startPolling() {
@@ -161,8 +213,32 @@ export async function syncWorkspaceNow(): Promise<void> {
     notify("saved");
   } catch (error) {
     const typed = error as Error & { status?: number; code?: string };
-    if (typed.status === 409 || typed.code === "workspace_revision_conflict") notify("conflict", typed.message);
-    else notify("error", typed.message);
+    if (typed.status === 409 || typed.code === "workspace_revision_conflict") {
+      try {
+        const remote = await request<{ payload: any | null; revision: number }>("/api/workspace");
+        const localPayload = await createCloudWorkspacePayload();
+        const merged = mergeWorkspacePayloads(localPayload, remote.payload || localPayload);
+        const mergedResult = await request<{ revision: number }>("/api/workspace", {
+          method: "PUT",
+          body: JSON.stringify({ expectedRevision: remote.revision, payload: merged }),
+        });
+        await mergeWorkspaceIntoLocal(merged);
+        activeRevision = mergedResult.revision;
+        lastSignature = payloadSignature(merged);
+        localStorage.setItem(revisionKey(activeUserId), String(activeRevision));
+        notify("saved", "云端冲突已自动合并，双方新增内容均已保留。");
+        return;
+      } catch (mergeError) {
+        const mergeTyped = mergeError as Error & { status?: number; code?: string };
+        if (mergeTyped.status === 409 || mergeTyped.code === "workspace_revision_conflict") {
+          notify("conflict", mergeTyped.message);
+        } else {
+          notify("error", mergeTyped.message);
+        }
+        throw mergeError;
+      }
+    }
+    notify("error", typed.message);
     throw error;
   } finally {
     syncing = false;

@@ -152,7 +152,7 @@ export function App() {
           <div className="river-brand-mark">R</div>
           <div>
             <div className="river-brand-title">River</div>
-            <div className="river-brand-subtitle">AI 伴随学习 · v0.21</div>
+            <div className="river-brand-subtitle">AI 伴随学习 · v0.21.1</div>
           </div>
         </div>
         <div className="river-topbar-actions">

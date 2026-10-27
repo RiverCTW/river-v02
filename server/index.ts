@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { clearedSessionCookie, createPersistence, type AuthUser } from "./persistence";
-import { encryptGenerationCredential, launchGenerationJob, newGenerationJobId, publicGenerationJob, resumeGenerationJobs } from "./generationJobs";
+import { cancelActiveGenerationJob, encryptGenerationCredential, launchGenerationJob, newGenerationJobId, publicGenerationJob, resumeGenerationJobs } from "./generationJobs";
 import {
   DEFAULT_MODEL,
   DEEPSEEK_MODEL_ID,
@@ -225,7 +225,7 @@ function sendError(res: express.Response, error: unknown, status = 500) {
 app.get("/api/health", (req, res) => {
   res.json({
     ok: true,
-    service: "riverv0.21",
+    service: "riverv0.21.1",
     defaultModel: DEFAULT_MODEL,
     supportedModels: SUPPORTED_MODELS,
     ccSwitchOpenCodeConfigured: isLoopbackRequest(req) && Boolean(readCcSwitchOpenCodeKey()),
@@ -307,6 +307,14 @@ app.post("/api/ai/full-package", requireUser, async (req, res) => {
   if (!noteId) return sendError(res, new Error("缺少目标笔记 ID。"), 400);
   if (!apiKey) return sendError(res, new Error("缺少 API Key。"), 400);
   if (!rateLimit(`full-package:${apiKey.slice(-8)}`, 10)) return sendError(res, new Error("请求过于频繁，请稍后再试。"), 429);
+  const workspace = await persistence.getWorkspace(user.id);
+  const targetNote = ((workspace.payload as any)?.notes || []).find((note: any) => note.id === noteId);
+  if (!targetNote || targetNote.deletedAt) {
+    const error = new Error(targetNote?.deletedAt ? "目标笔记已被删除，无法开始生成。" : "目标笔记尚未同步到云端工作区，请稍后重试。") as Error & { status?: number; code?: string };
+    error.status = 409;
+    error.code = targetNote?.deletedAt ? "target_note_deleted" : "workspace_note_missing";
+    return sendError(res, error, 409);
+  }
   const existing = await persistence.getActiveGenerationJob(user.id, noteId);
   if (existing) {
     launchGenerationJob(persistence, existing.id);
@@ -322,11 +330,21 @@ app.post("/api/ai/full-package", requireUser, async (req, res) => {
       sourceSnapshot: req.body?.sourceSnapshot,
       totalPages: Number(req.body?.totalPages || 0),
       sessionId: getAiSessionId(req),
+      noteSnapshot: targetNote,
     },
     credentialCipher: credential.cipher, credentialIv: credential.iv, credentialTag: credential.tag,
   });
   launchGenerationJob(persistence, job.id);
   res.status(202).json(publicGenerationJob(job));
+});
+
+app.post("/api/ai/full-package/cancel", requireUser, async (req, res) => {
+  const persistence = await persistencePromise;
+  const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
+  const noteId = String(req.body?.noteId || "").trim();
+  if (!noteId) return sendError(res, new Error("缺少目标笔记 ID。"), 400);
+  const job = await cancelActiveGenerationJob(persistence, user.id, noteId);
+  res.json({ cancelled: Boolean(job), job: job ? publicGenerationJob(job) : null });
 });
 
 app.get("/api/ai/full-package/active", requireUser, async (req, res) => {

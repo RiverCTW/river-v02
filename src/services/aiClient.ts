@@ -160,6 +160,18 @@ export async function getActiveFullLearningPackageJob(noteId: string): Promise<G
   return job as GenerationJob;
 }
 
+export async function cancelFullLearningPackage(noteId: string): Promise<boolean> {
+  const response = await fetch("/api/ai/full-package/cancel", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ noteId }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error?.message || `请求失败：HTTP ${response.status}`);
+  return Boolean(payload?.cancelled);
+}
+
 export async function waitForFullLearningPackage(jobId: string, onProgress?: (progress: GenerationProgress) => void): Promise<AIResponse<FullLearningPackageData>> {
   const unavailableSince = Date.now();
   let consecutiveNetworkFailures = 0;

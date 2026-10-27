@@ -49,6 +49,7 @@ import type {
 import { addChildNode, addNodeAfter, deleteNode, flattenTree, indentNode, moveNode, outdentNode, buildTree } from "../services/tree";
 import {
   CC_SWITCH_LOCAL_KEY,
+  cancelFullLearningPackage,
   expandNode,
   generateFullLearningPackage,
   generateOpening,
@@ -68,7 +69,7 @@ import { composeLearningOpeningOutline } from "../services/learningOpeningOutlin
 import { nodesToTiptap, tiptapToNodes } from "../editor/convert";
 import { flushActiveEditor, renameActiveEditorTitle } from "../editor/editorFlush";
 import { clearEditorSnapshot, readEditorSnapshot, readEditorSnapshotRecord } from "../editor/snapshotCache";
-import { adoptServerWorkspaceRevision, scheduleWorkspaceSync } from "../services/workspaceSync";
+import { adoptServerWorkspaceRevision, flushWorkspace, scheduleWorkspaceSync } from "../services/workspaceSync";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -447,6 +448,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteNoteAction: async (noteId) => {
+    await cancelFullLearningPackage(noteId).catch(() => undefined);
     await softDeleteNote(noteId);
     if (get().activeNoteId === noteId) get().closeNote();
     await get().refreshLibrary();
@@ -488,6 +490,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   permanentlyDeleteNoteAction: async (noteId) => {
+    await cancelFullLearningPackage(noteId).catch(() => undefined);
     await permanentlyDeleteNote(noteId);
     await get().refreshLibrary();
   },
@@ -973,6 +976,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const orderedSources = (bundle.sources?.length ? bundle.sources : [bundle.source!]).sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
     const lockedAt = iso();
     await updateNote(bundle.note.id, { generationState: "generating", generationError: null, sourcesLockedAt: lockedAt, profileLockedAt: lockedAt });
+    try {
+      await flushWorkspace();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "笔记尚未同步到云端工作区。";
+      await updateNote(bundle.note.id, { generationState: "failed", generationError: message, sourcesLockedAt: null, profileLockedAt: null });
+      get().showToast(`无法开始生成：${message}`, "error");
+      return;
+    }
     set({
       isGenerating: true, generationNoteId: bundle.note.id,
       generationMessage: "正在提交后台生成任务…", generationProgress: 1,

@@ -100,8 +100,11 @@ async function commitGenerationWorkspace(persistence: PersistenceAdapter, job: G
     const workspace = await persistence.getWorkspace(job.userId);
     const current = workspace.payload as any;
     if (!current) throw new Error("无法保存生成结果：账号工作区不存在。");
-    const existingNote = (current.notes || []).find((note: any) => note.id === job.noteId);
-    if (!existingNote) throw new Error("无法保存生成结果：目标笔记已被删除。");
+    const persistedNote = (current.notes || []).find((note: any) => note.id === job.noteId);
+    if (persistedNote?.deletedAt) throw new Error("目标笔记在生成期间已被删除，结果未写回。");
+    const snapshotNote = payload.noteSnapshot;
+    const existingNote = persistedNote || (snapshotNote?.deletedAt ? null : snapshotNote);
+    if (!existingNote) throw new Error("无法保存生成结果：目标笔记不存在，且启动任务时没有可用快照。");
     const createdAt = new Date().toISOString();
     const profile = payload.profile;
     const lockedProfile = { ...profile, lockedAt: createdAt, updatedAt: createdAt };
@@ -137,7 +140,9 @@ async function commitGenerationWorkspace(persistence: PersistenceAdapter, job: G
     };
     const nextPayload = {
       ...current,
-      notes: (current.notes || []).map((note: any) => note.id === job.noteId ? commit.note : note),
+      notes: persistedNote
+        ? (current.notes || []).map((note: any) => note.id === job.noteId ? commit.note : note)
+        : [...(current.notes || []), commit.note],
       profiles: [...(current.profiles || []).filter((item: any) => item.noteId !== job.noteId), lockedProfile],
       introductions: [...(current.introductions || []).filter((item: any) => item.noteId !== job.noteId), introduction],
       nodes: [...(current.nodes || []).filter((node: any) => node.noteId !== job.noteId), ...composed.nodes],
@@ -205,6 +210,8 @@ async function processGenerationJob(persistence: PersistenceAdapter, jobId: stri
       customization: typeof payload.customization === "string" ? payload.customization : "",
       introduction: payload.introduction,
       onProgress: async (progress, message, meta) => {
+        const currentJob = await persistence.getGenerationJob(jobId);
+        if (!currentJob || currentJob.status === "FAILED") return;
         await persistence.updateGenerationJob(jobId, {
           status: (meta?.stage || "GENERATING") as any,
           stage: meta?.stage || "GENERATING",
@@ -220,6 +227,8 @@ async function processGenerationJob(persistence: PersistenceAdapter, jobId: stri
         });
       },
     });
+    const latestJob = await persistence.getGenerationJob(jobId);
+    if (!latestJob || latestJob.status === "FAILED") return;
     await persistence.updateGenerationJob(jobId, {
       status: "SAVING", stage: "SAVING", progress: 98, message: "正在保存到目标笔记",
       heartbeatAt: new Date().toISOString(), leaseUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
@@ -241,6 +250,17 @@ async function processGenerationJob(persistence: PersistenceAdapter, jobId: stri
       leaseUntil: null, heartbeatAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
     });
   }
+}
+
+export async function cancelActiveGenerationJob(persistence: PersistenceAdapter, userId: string, noteId: string) {
+  const job = await persistence.getActiveGenerationJob(userId, noteId);
+  if (!job) return null;
+  return persistence.updateGenerationJob(job.id, {
+    status: "FAILED", stage: "FAILED", progress: 0, message: "生成已取消",
+    errorCode: "generation_cancelled", errorMessage: "目标笔记已删除，生成任务已取消。",
+    credentialCipher: null, credentialIv: null, credentialTag: null,
+    leaseUntil: null, heartbeatAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+  });
 }
 
 export async function resumeGenerationJobs(persistence: PersistenceAdapter) {
