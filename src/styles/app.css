@@ -1584,7 +1584,7 @@ button {
 .is-resizing-col, .is-resizing-col * { cursor: col-resize !important; }
 .is-resizing-row, .is-resizing-row * { cursor: row-resize !important; }
 .river-v02-note-main { display: flex; flex-direction: column; height: 100%; min-width: 0; overflow: hidden; border: 1px solid light-dark(#ded9d0, #2b3135); border-radius: 10px; background: light-dark(#fffdf9, #181c1f); }
-.river-note-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 8px 12px; border-bottom: 1px solid light-dark(#e4dfd7, #2c3337); }
+.river-note-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 6px 12px; border-bottom: 1px solid light-dark(#e4dfd7, #2c3337); }
 .river-note-location { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .river-note-location > span { color: light-dark(#aaa49b, #747f84); }
 .river-note-location > button { max-width: 200px; overflow: hidden; border: 0; background: transparent; color: #2f6f6b; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
@@ -1594,14 +1594,14 @@ button {
 .river-main-editor-region > .river-outline-editor-shell { height: 100%; min-height: 0; }
 .river-main-editor-region .river-outline-canvas { overflow: auto; }
 
-.river-preference-card { margin: 10px 12px 0; padding: 12px; border: 1px solid light-dark(#e1d8c7, #3b3427); border-radius: 9px; background: light-dark(#fffaf0, #1d1a14); }
+.river-preference-card { margin: 5px 12px 0; padding: 6px 12px; border: 1px solid light-dark(#e1d8c7, #3b3427); border-radius: 9px; background: light-dark(#fffaf0, #1d1a14); }
 .river-v02-note-main .river-preference-card:not(.is-collapsed) { flex: 0 1 auto; min-height: 96px; max-height: calc(100% - 260px); overflow-y: auto; overscroll-behavior: contain; }
 .river-preference-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.river-preference-card.is-collapsed { padding-bottom: 9px; }
+.river-preference-card.is-collapsed { padding-bottom: 5px; }
 .river-preference-card.is-collapsed h3 { margin-bottom: 0; }
 .river-preference-header-actions { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
 .river-preference-toggle { border: 0; background: transparent; color: #2f6f6b; font: inherit; font-size: 9px; white-space: nowrap; cursor: pointer; }
-.river-preference-card h3 { margin: 2px 0 10px; font-size: 13px; }
+.river-preference-card h3 { margin: 1px 0 5px; font-size: 13px; }
 .river-overline { color: #2f6f6b; font-size: 8px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .river-preference-question { margin-top: 9px; }
 .river-preference-question > label { display: block; margin-bottom: 6px; color: light-dark(#555149, #d3d0c9); font-size: 10px; }
