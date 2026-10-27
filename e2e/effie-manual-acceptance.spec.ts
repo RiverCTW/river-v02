@@ -65,8 +65,8 @@ test("Backspace removes text, the bullet, and then the empty line", async ({ pag
 
   await page.keyboard.press("Backspace");
   await expect(bodyItems(page)).toHaveCount(1);
-  await expect.poll(async () => (await caret(page)).text).toBe("开始记录你的学习内容。");
-  await expect.poll(async () => (await caret(page)).offset).toBe("开始记录你的学习内容。".length);
+  await expect.poll(async () => (await caret(page)).text).toBe("删除验收");
+  await expect.poll(async () => (await caret(page)).offset).toBe("删除验收".length);
 });
 
 test("Tab and Shift+Tab keep the caret inside the current item", async ({ page }) => {

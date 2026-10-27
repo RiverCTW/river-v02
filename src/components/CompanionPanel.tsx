@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { db } from "../db/database";
-import type { LearningMap, LearningMapKind } from "../types";
+import type { LearningMapKind } from "../types";
 import { useAppStore } from "../store/useAppStore";
 import { LearningMapEditor } from "./LearningMapEditor";
 import { ChatPanel } from "./ChatPanel";
 import { ResizableSplit } from "./ResizableSplit";
-import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./IconSprite";
 
 export function CompanionPanel({ noteId }: { noteId: string }) {
@@ -14,27 +12,26 @@ export function CompanionPanel({ noteId }: { noteId: string }) {
   const deleteSourceAction = useAppStore((state) => state.deleteSourceAction);
   const reorderSourcesAction = useAppStore((state) => state.reorderSourcesAction);
   const [activeKind, setActiveKind] = useState<LearningMapKind>("requirements");
-  const [mapMenu, setMapMenu] = useState<{ x: number; y: number; kind: LearningMapKind } | null>(null);
-  const [mapRecords, setMapRecords] = useState<Partial<Record<LearningMapKind, LearningMap>>>({});
   const [dragActive, setDragActive] = useState(false);
+  const [materialsCollapsed, setMaterialsCollapsed] = useState(false);
+  const storageKey = `river.materials.collapsed.${noteId}`;
   const inputRef = useRef<HTMLInputElement>(null);
   const locked = Boolean(bundle?.note.sourcesLockedAt || bundle?.note.generationState === "completed");
   const sources = bundle?.sources?.length ? bundle.sources : bundle?.source ? [bundle.source] : [];
 
   useEffect(() => {
-    db.learningMaps.where("noteId").equals(noteId).toArray().then((items) => setMapRecords(Object.fromEntries(items.map((item) => [item.kind, item])) as Partial<Record<LearningMapKind, LearningMap>>));
-  }, [noteId, bundle?.note.generatedAt]);
+    setMaterialsCollapsed(localStorage.getItem(storageKey) === "true");
+  }, [storageKey]);
+
+  const toggleMaterials = () => {
+    setMaterialsCollapsed((current) => {
+      localStorage.setItem(storageKey, String(!current));
+      return !current;
+    });
+  };
 
   const uploadFiles = async (files: FileList | File[]) => {
     for (const file of Array.from(files)) await attachCourseware(file);
-  };
-
-  const toggleSync = async (kind: LearningMapKind) => {
-    const map = mapRecords[kind];
-    if (!map) return;
-    const next = { ...map, syncEnabled: !map.syncEnabled, updatedAt: new Date().toISOString() };
-    await db.learningMaps.put(next);
-    setMapRecords((current) => ({ ...current, [kind]: next }));
   };
 
   const moveSource = async (index: number, direction: -1 | 1) => {
@@ -47,8 +44,17 @@ export function CompanionPanel({ noteId }: { noteId: string }) {
 
   return (
     <aside className="river-editor-side river-companion-panel">
-      <section className="river-materials-panel">
-        <div className="river-companion-heading"><div><div className="river-overline">学习资料</div><b>{sources.length ? `${sources.length} 份资料` : "添加课件"}</b></div>{locked && <span className="river-badge">已锁定</span>}</div>
+      <div className={`river-companion-top ${materialsCollapsed ? "is-collapsed" : ""}`}>
+      <section className={`river-materials-panel ${materialsCollapsed ? "is-collapsed" : ""}`}>
+        <div className="river-companion-heading">
+          <div><div className="river-overline">学习资料</div><b>{sources.length ? `${sources.length} 份资料` : "添加课件"}</b></div>
+          <div className="river-materials-actions">
+            {locked && <span className="river-badge">已锁定</span>}
+            <button type="button" className="river-materials-toggle" aria-expanded={!materialsCollapsed} onClick={toggleMaterials}>
+              {materialsCollapsed ? "展开" : "收起"}
+            </button>
+          </div>
+        </div>
         {!locked && <div className={`river-companion-dropzone ${dragActive ? "is-drag" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} onDrop={(event) => { event.preventDefault(); setDragActive(false); void uploadFiles(event.dataTransfer.files); }} onClick={() => inputRef.current?.click()}>
           <Icon name="notebook" /><span>拖动或选择 PDF / PPTX</span>
           <input ref={inputRef} hidden multiple type="file" accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files); event.target.value = ""; }} />
@@ -63,8 +69,10 @@ export function CompanionPanel({ noteId }: { noteId: string }) {
       </section>
 
       <div className="river-map-switch" role="tablist">
-        <button role="tab" aria-selected={activeKind === "requirements"} className={activeKind === "requirements" ? "selected" : ""} onClick={() => setActiveKind("requirements")} onContextMenu={(event) => { event.preventDefault(); setMapMenu({ x: event.clientX, y: event.clientY, kind: "requirements" }); }}>以要求来呈现<br />学习地图</button>
-        <button role="tab" aria-selected={activeKind === "questions"} className={activeKind === "questions" ? "selected" : ""} onClick={() => setActiveKind("questions")} onContextMenu={(event) => { event.preventDefault(); setMapMenu({ x: event.clientX, y: event.clientY, kind: "questions" }); }}>以问题来呈现<br />学习地图</button>
+        <button role="tab" aria-selected={activeKind === "requirements"} className={activeKind === "requirements" ? "selected" : ""} onClick={() => setActiveKind("requirements")}>学习目标式学习地图</button>
+        <button role="tab" aria-selected={activeKind === "questions"} className={activeKind === "questions" ? "selected" : ""} onClick={() => setActiveKind("questions")}>问题式学习地图</button>
+      </div>
+
       </div>
 
       <div className="river-companion-workarea">
@@ -72,13 +80,12 @@ export function CompanionPanel({ noteId }: { noteId: string }) {
           direction="vertical"
           storageKey={`river.split.companion.v3.${noteId}`}
           defaultPercent={75}
-          minFirst={260}
+          minFirst={0}
           minSecond={180}
           first={<LearningMapEditor noteId={noteId} activeKind={activeKind} />}
           second={<ChatPanel noteId={noteId} />}
         />
       </div>
-      {mapMenu && <ContextMenu x={mapMenu.x} y={mapMenu.y} items={[{ id: "sync", label: mapRecords[mapMenu.kind]?.syncEnabled ? "不同步伴随栏笔记" : "同步伴随栏笔记", hint: "个人回答永远保留", action: () => toggleSync(mapMenu.kind) }]} onClose={() => setMapMenu(null)} />}
     </aside>
   );
 }

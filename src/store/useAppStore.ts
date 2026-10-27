@@ -66,6 +66,7 @@ import {
 import { parseCourseware, sourceToText } from "../services/uploadService";
 import { createBackupPayload, restoreBackupPayload } from "../db/backup";
 import { composeLearningOpeningOutline } from "../services/learningOpeningOutline";
+import { buildCompanionMaps } from "../services/companionCopy";
 import { nodesToTiptap, tiptapToNodes } from "../editor/convert";
 import { flushActiveEditor, renameActiveEditorTitle } from "../editor/editorFlush";
 import { clearEditorSnapshot, readEditorSnapshot, readEditorSnapshotRecord } from "../editor/snapshotCache";
@@ -1479,21 +1480,12 @@ async function applyGenerationResultToLocal(
     const editorDoc = await writeExternalTree(noteId, composedTree.nodes, composedTree.blocks);
     const finishedAt = iso();
     finalProfile = { ...bundle.profile!, lockedAt: finishedAt, updatedAt: finishedAt };
-    const mapFromAI = (kind: LearningMap["kind"], value: { title: string; nodes: any[] }): LearningMap => {
-      const mapNodes: KnowledgeNode[] = [];
-      const mapBlocks: ContentBlock[] = [];
-      const mapWalk = (items: any[], parentId: string | null) => (items || []).forEach((item, index) => {
-        const nodeId = nanoid();
-        mapNodes.push({ id: nodeId, noteId, parentId, order: index, title: item.title, nodeType: item.nodeType || "knowledge", collapsed: false, sourceRefs: item.sourceRefs || [], userModified: false, createdAt: finishedAt, updatedAt: finishedAt });
-        (item.blocks || []).forEach((block: any, blockIndex: number) => mapBlocks.push({ id: nanoid(), nodeId, noteId, order: blockIndex, type: block.type, text: block.text, sourceRefs: block.sourceRefs || [], userModified: false, createdAt: finishedAt, updatedAt: finishedAt }));
-        if (item.children?.length) mapWalk(item.children, nodeId);
-      });
-      mapWalk(value.nodes || [], null);
-      return { noteId, kind, editorDoc: nodesToTiptap(mapNodes, mapBlocks), nodes: mapNodes, blocks: mapBlocks, syncEnabled: false, revision: 1, createdAt: finishedAt, updatedAt: finishedAt };
-    };
+    // v0.22: companion maps are a one-time copy of the two sections that now
+    // live in the main tree. No extra AI calls, no reference answers, no sync.
+    const companion = buildCompanionMaps(composedTree.nodes, composedTree.blocks, noteId, finishedAt);
     await Promise.all([
-      upsertLearningMap(mapFromAI("requirements", response.data.requirements)),
-      upsertLearningMap(mapFromAI("questions", response.data.questions)),
+      ...(companion.requirements ? [upsertLearningMap(companion.requirements)] : []),
+      ...(companion.questions ? [upsertLearningMap(companion.questions)] : []),
       upsertIntroduction(finalIntroduction), upsertLearningProfile(finalProfile),
     ]);
     const notePatch = { title: tree.title || bundle.note.title, editorDoc, revision: (bundle.note.revision || 0) + 1, updatedAt: finishedAt, generationState: "completed" as const, sourcesLockedAt: finishedAt, profileLockedAt: finishedAt, generatedAt: finishedAt, generationError: null };

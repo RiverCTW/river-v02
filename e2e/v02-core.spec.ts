@@ -57,14 +57,14 @@ test("v0.2 keeps main knowledge tree and two learning maps independent", async (
   await expect(main).toContainText("MAIN-ONLY");
   await expect(requirements).toContainText("REQ-ONLY");
 
-  await page.getByRole("tab", { name: /以问题来呈现/ }).click();
+  await page.getByRole("tab", { name: /问题式学习地图/ }).click();
   const questions = page.locator(".river-learning-map-instance.is-active .river-outline-editor");
   await questions.click();
   await questions.press("End");
   await questions.pressSequentially("-ANSWER-ONE");
-  await page.getByRole("tab", { name: /以要求来呈现/ }).click();
+  await page.getByRole("tab", { name: /学习目标式学习地图/ }).click();
   await expect(requirements).toContainText("REQ-ONLY");
-  await page.getByRole("tab", { name: /以问题来呈现/ }).click();
+  await page.getByRole("tab", { name: /问题式学习地图/ }).click();
   await expect(questions).toContainText("ANSWER-ONE");
   expect(noteId).toBeTruthy();
 });

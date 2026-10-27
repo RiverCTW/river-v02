@@ -218,6 +218,21 @@ export const OutlineListItem = ListItem.extend({
         parseHTML: (element) => element.getAttribute("data-user-modified") === "true",
         renderHTML: (attributes) => ({ "data-user-modified": attributes.userModified ? "true" : "false" }),
       },
+      clusterId: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("data-cluster-id"),
+        renderHTML: (attributes) => attributes.clusterId ? { "data-cluster-id": String(attributes.clusterId) } : {},
+      },
+      uncertaintyReason: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("data-uncertainty"),
+        renderHTML: (attributes) => attributes.uncertaintyReason ? { "data-uncertainty": String(attributes.uncertaintyReason) } : {},
+      },
+      evidenceReason: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("data-evidence"),
+        renderHTML: (attributes) => attributes.evidenceReason ? { "data-evidence": String(attributes.evidenceReason) } : {},
+      },
       createdAt: {
         default: null,
         parseHTML: (element) => element.getAttribute("data-created-at"),
@@ -247,7 +262,9 @@ export const OutlineListItem = ListItem.extend({
         const position = currentPosition(getPos);
         if (position === null) return;
         const currentNode = editor.state.doc.nodeAt(position);
-        if (!currentNode || currentNode.childCount < 2) return;
+        if (!currentNode) return;
+        const isReferenceAnswer = currentNode.attrs.itemType === "block" && currentNode.attrs.blockType === "referenceAnswer";
+        if (!isReferenceAnswer && currentNode.childCount < 2) return;
         const transaction = editor.state.tr.setNodeMarkup(position, undefined, {
           ...currentNode.attrs,
           collapsed: !currentNode.attrs.collapsed,
@@ -267,6 +284,9 @@ export const OutlineListItem = ListItem.extend({
         const position = currentPosition(getPos);
         if (position !== null) selectStructuralItem(editor, position);
       };
+      // Pointer-based drag: large hit area, ghost preview, drop marker and
+      // edge auto-scroll. Pointer capture keeps the gesture alive even when the
+      // pointer leaves the handle or the viewport.
       dragHandle.addEventListener("mousedown", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -358,9 +378,22 @@ export const OutlineListItem = ListItem.extend({
         }));
       });
 
+      const uncertainty = document.createElement("button");
+      uncertainty.type = "button";
+      uncertainty.className = "river-outline-uncertainty";
+      uncertainty.textContent = "·";
+      uncertainty.hidden = true;
+      uncertainty.addEventListener("mousedown", (event) => event.preventDefault());
+      uncertainty.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        uncertainty.classList.toggle("is-open");
+        wrapper.classList.toggle("show-uncertainty");
+      });
+
       const contentDOM = document.createElement("div");
       contentDOM.className = "river-outline-content";
-      controls.append(toggle, dragHandle, kind, blockType);
+      controls.append(toggle, dragHandle, kind, uncertainty, blockType);
       wrapper.append(controls, contentDOM);
 
       const renderAttributes = (nextNode: typeof node) => {
@@ -393,7 +426,23 @@ export const OutlineListItem = ListItem.extend({
         if (hasChildren) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
         else toggle.removeAttribute("aria-expanded");
         toggle.title = hasChildren ? (collapsed ? "展开" : "折叠") : "知识点";
-        toggle.hidden = !markerVisible && !hasChildren;
+        const isReferenceAnswer = itemType === "block" && nextBlockType === "referenceAnswer";
+        toggle.hidden = !markerVisible && !hasChildren && !isReferenceAnswer;
+        if (isReferenceAnswer) {
+          toggle.setAttribute("aria-label", collapsed ? "展开参考答案" : "收起参考答案");
+          toggle.title = collapsed ? "展开参考答案" : "收起参考答案";
+        }
+
+        const uncertaintyReason = String(nextNode.attrs.uncertaintyReason || "");
+        uncertainty.hidden = !uncertaintyReason;
+        if (uncertaintyReason) {
+          uncertainty.title = `把握不大：${uncertaintyReason}`;
+          wrapper.dataset.uncertainty = uncertaintyReason;
+        } else {
+          delete wrapper.dataset.uncertainty;
+          wrapper.classList.remove("show-uncertainty");
+          uncertainty.classList.remove("is-open");
+        }
 
         const isBlock = itemType === "block";
         kind.hidden = isBlock || headingLevel === 0;

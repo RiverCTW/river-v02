@@ -286,18 +286,40 @@ export function backspaceOutlineBoundary(editor: Editor): boolean {
     return true;
   }
 
-  const previous = findPreviousListItem(state.doc, current.pos);
-  if (!previous) return false;
-  const previousId = previous.id;
+  // Prefer the immediate previous sibling. If the empty item is the first
+  // child of a parent item, fall back to that parent instead of scanning the
+  // whole document: scanning would skip the parent (it contains the current
+  // item, so its end is after the caret) and jump to an unrelated earlier
+  // block above the parent.
+  const $current = state.doc.resolve(current.pos);
+  const parentList = $current.parent;
+  const itemIndex = $current.index();
+  let targetPos: number | null = null;
+  let targetParagraph: PMNode | null = null;
+
+  if (itemIndex > 0) {
+    const previousSibling = parentList.child(itemIndex - 1);
+    const previousParagraph = previousSibling.firstChild;
+    if (previousParagraph?.isTextblock) {
+      targetPos = current.pos - previousSibling.nodeSize;
+      targetParagraph = previousParagraph;
+    }
+  }
+  if (!targetParagraph && $current.depth >= 2) {
+    const ancestor = $current.node($current.depth - 1);
+    if (ancestor.type.name === "listItem") {
+      const ancestorParagraph = ancestor.firstChild;
+      if (ancestorParagraph?.isTextblock) {
+        targetPos = $current.before($current.depth - 1);
+        targetParagraph = ancestorParagraph;
+      }
+    }
+  }
+  if (targetPos === null || !targetParagraph) return false;
+
   const transaction = state.tr.delete(current.pos, current.pos + current.node.nodeSize);
   ensureDocumentNotEmpty(transaction);
-  const previousAfter = findListItemById(transaction.doc, previousId);
-  if (!previousAfter) {
-    editor.view.dispatch(transaction.scrollIntoView());
-    return true;
-  }
-  const previousParagraph = previousAfter.node.firstChild;
-  const caret = previousAfter.pos + 2 + (previousParagraph?.content.size || 0);
+  const caret = targetPos + 2 + targetParagraph.content.size;
   placeCaretNear(transaction, caret);
   editor.view.dispatch(transaction.scrollIntoView());
   return true;
@@ -455,17 +477,21 @@ export function splitItemAtSelection(editor: Editor, placement: "sibling" | "chi
   const retainedChildren = item.node.content.cut(paragraph.nodeSize);
   const now = new Date().toISOString();
   const isBlock = item.node.attrs.itemType === "block";
-  const nextMarkerVisible = itemHasVisibleMarker(item.node);
+  // Effie turns an empty content line into a visible bullet when Enter is
+  // pressed, so repeated Enter walks out through bullets instead of creating
+  // invisible block after block. Non-empty blocks keep their block type.
+  const convertingEmptyBlock = isBlock && offset >= paragraph.content.size;
+  const nextMarkerVisible = convertingEmptyBlock ? true : isBlock ? false : itemHasVisibleMarker(item.node);
   const id = nanoid();
   const newSibling = listItemType.create(
     {
       ...item.node.attrs,
-      itemType: isBlock ? "block" : "knowledge",
-      nodeType: isBlock ? item.node.attrs.nodeType : "knowledge",
+      itemType: convertingEmptyBlock || !isBlock ? "knowledge" : "block",
+      nodeType: convertingEmptyBlock || !isBlock ? "knowledge" : item.node.attrs.nodeType,
       headingLevel: 0,
       markerVisible: nextMarkerVisible,
-      nodeId: isBlock ? null : id,
-      blockId: isBlock ? id : null,
+      nodeId: convertingEmptyBlock || !isBlock ? id : null,
+      blockId: isBlock && !convertingEmptyBlock ? id : null,
       collapsed: false,
       sourceRefs: [],
       userModified: true,
