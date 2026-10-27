@@ -80,6 +80,11 @@ async function mergeWorkspaceIntoLocal(payload: any) {
   });
 }
 
+function workspaceHasContent(payload: any): boolean {
+  return Boolean(payload && ["folders", "notes", "sources", "profiles", "introductions", "settings", "learningMaps", "chatMessages"]
+    .some((key) => Array.isArray(payload[key]) && payload[key].length > 0));
+}
+
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(() => {
@@ -129,20 +134,43 @@ export async function loadWorkspaceForUser(userId: string): Promise<{ payload: a
   activePayloadExists = false;
   const remote = await request<{ payload: any | null; revision: number }>("/api/workspace");
   if (remote.payload) {
+    const remotePayload = remote.payload?.format ? remote.payload : { format: "river-backup", version: 2, ...remote.payload };
+    const localPayload = await createCloudWorkspacePayload();
+    let mergedPayload = workspaceHasContent(localPayload) ? mergeWorkspacePayloads(localPayload, remotePayload) : remotePayload;
+    let mergedRevision = remote.revision;
+    if (payloadSignature(mergedPayload) !== payloadSignature(remotePayload)) {
+      try {
+        const saved = await request<{ revision: number }>("/api/workspace", {
+          method: "PUT",
+          body: JSON.stringify({ expectedRevision: remote.revision, payload: mergedPayload }),
+        });
+        mergedRevision = saved.revision;
+      } catch (error) {
+        const typed = error as Error & { status?: number; code?: string };
+        if (typed.status !== 409 && typed.code !== "workspace_revision_conflict") throw error;
+        const latest = await request<{ payload: any | null; revision: number }>("/api/workspace");
+        const latestPayload = latest.payload || remotePayload;
+        mergedPayload = mergeWorkspacePayloads(localPayload, latestPayload);
+        const saved = await request<{ revision: number }>("/api/workspace", {
+          method: "PUT",
+          body: JSON.stringify({ expectedRevision: latest.revision, payload: mergedPayload }),
+        });
+        mergedRevision = saved.revision;
+      }
+    }
     hydrating = true;
     try {
-      const payload = remote.payload?.format ? remote.payload : { format: "river-backup", version: 2, ...remote.payload };
-      await restoreBackupPayload(payload);
+      await restoreBackupPayload(mergedPayload);
     } finally {
       hydrating = false;
     }
     activeUserId = userId;
-    activeRevision = remote.revision;
+    activeRevision = mergedRevision;
     activePayloadExists = true;
-    lastSignature = payloadSignature(await createCloudWorkspacePayload());
+    lastSignature = payloadSignature(mergedPayload);
     startPolling();
-    localStorage.setItem(revisionKey(userId), String(remote.revision));
-    notify("saved");
+    localStorage.setItem(revisionKey(userId), String(mergedRevision));
+    notify("saved", workspaceHasContent(localPayload) ? "本地与云端工作区已安全合并。" : undefined);
   }
   return remote;
 }
