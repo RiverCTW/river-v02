@@ -147,7 +147,7 @@ export function App() {
   return (
     <div id="river-app" className="river-app-shell">
       <IconSprite />
-      <header className="river-topbar">
+      <header className={`river-topbar ${bundle ? "is-note" : ""}`}>
         <div className="river-brand">
           <div className="river-brand-mark">R</div>
           <div>

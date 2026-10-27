@@ -44,6 +44,7 @@ export function CompanionPanel({ noteId }: { noteId: string }) {
 
   return (
     <aside className="river-editor-side river-companion-panel">
+      <div className={`river-companion-top ${materialsCollapsed ? "is-collapsed" : ""}`}>
       <section className={`river-materials-panel ${materialsCollapsed ? "is-collapsed" : ""}`}>
         <div className="river-companion-heading">
           <div><div className="river-overline">学习资料</div><b>{sources.length ? `${sources.length} 份资料` : "添加课件"}</b></div>
@@ -70,6 +71,8 @@ export function CompanionPanel({ noteId }: { noteId: string }) {
       <div className="river-map-switch" role="tablist">
         <button role="tab" aria-selected={activeKind === "requirements"} className={activeKind === "requirements" ? "selected" : ""} onClick={() => setActiveKind("requirements")}>学习目标式学习地图</button>
         <button role="tab" aria-selected={activeKind === "questions"} className={activeKind === "questions" ? "selected" : ""} onClick={() => setActiveKind("questions")}>问题式学习地图</button>
+      </div>
+
       </div>
 
       <div className="river-companion-workarea">

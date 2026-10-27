@@ -21,10 +21,16 @@ export function ResizableSplit({ direction, storageKey, defaultPercent, minFirst
   const pending = useRef<{ x: number; y: number } | null>(null);
   const directionRef = useRef(direction);
   const limitsRef = useRef({ minFirst, minSecond });
+  const isMainSplit = storageKey.startsWith("river.split.main");
 
   useEffect(() => { directionRef.current = direction; }, [direction]);
   useEffect(() => { limitsRef.current = { minFirst, minSecond }; }, [minFirst, minSecond]);
   useEffect(() => { localStorage.setItem(storageKey, String(percent)); }, [percent, storageKey]);
+  useEffect(() => {
+    if (!isMainSplit) return;
+    document.documentElement.style.setProperty("--river-main-split", `${percent}%`);
+    return () => { document.documentElement.style.removeProperty("--river-main-split"); };
+  }, [percent, isMainSplit]);
 
   const clamp = (next: number) => {
     const rect = ref.current?.getBoundingClientRect();
