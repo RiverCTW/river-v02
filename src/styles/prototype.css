@@ -100,7 +100,10 @@
   #river-app .tmi-panel {
     min-width: 0;
     padding: 12px;
-    border: 1px solid var(--tmi-border);
+    /* The outer frame is decorative only. Keep the 1px border box so the
+       inner .tmi-window keeps exactly the same width, height and position,
+       but make the border invisible. */
+    border: 1px solid transparent;
     border-radius: 10px;
     background: var(--tmi-bg);
   }
