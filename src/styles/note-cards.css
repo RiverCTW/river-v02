@@ -1,0 +1,127 @@
+/* Effie-style note cards: dynamic trapezoid tab and overflow-safe layout. */
+
+.effie-note-list .effie-note-card {
+  position: relative;
+  min-height: 182px;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  filter: drop-shadow(0 7px 12px light-dark(rgba(40, 34, 24, 0.07), rgba(0, 0, 0, 0.25)));
+}
+
+.effie-note-list .effie-note-card.is-selected {
+  filter: drop-shadow(0 9px 16px rgba(47, 111, 107, 0.2));
+}
+
+.effie-note-list .effie-card-outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.effie-note-list .effie-card-outline path {
+  fill: light-dark(#fffdf9, #1b1f22);
+  stroke: light-dark(#ddd7cd, #364044);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.effie-note-list .effie-note-card.is-selected .effie-card-outline path {
+  stroke: #2f6f6b;
+  stroke-width: 1.5;
+}
+
+.effie-note-list .effie-note-card.is-pinned .effie-card-outline path {
+  stroke: #d0a842;
+}
+
+.effie-note-list .effie-card-tab {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  height: 53px;
+  padding: 0 18px 0 24px;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: light-dark(#817b72, #aab2b6);
+  font: 600 11px "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  white-space: nowrap;
+}
+
+.effie-note-list .effie-card-tab-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.effie-note-list .effie-card-tab-measure {
+  position: absolute;
+  top: 0;
+  left: -9999px;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.effie-note-list .effie-card-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 182px;
+  padding: 62px 20px 14px 24px;
+  box-sizing: border-box;
+}
+
+.effie-note-list .effie-card-preview {
+  display: -webkit-box;
+  min-height: 0;
+  margin: 0;
+  padding-right: 42px;
+  overflow: hidden;
+  color: light-dark(#555b60, #b9c1c5);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+
+.effie-note-list .effie-card-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 10px;
+  color: light-dark(#8a857d, #8f999e);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.effie-note-list .effie-card-footer span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.effie-note-list .effie-card-footer span:last-child {
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.effie-note-list .effie-note-card .note-heart {
+  top: 62px;
+  right: 16px;
+  z-index: 3;
+}
