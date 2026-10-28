@@ -2,7 +2,7 @@
 
 .effie-note-list .effie-note-card {
   position: relative;
-  min-height: 182px;
+  min-height: 190px;
   padding: 0;
   overflow: hidden;
   cursor: pointer;
@@ -76,9 +76,23 @@
   z-index: 1;
   display: flex;
   flex-direction: column;
-  min-height: 182px;
+  min-height: 190px;
   padding: 62px 20px 14px 24px;
   box-sizing: border-box;
+}
+
+.effie-note-list .effie-card-title {
+  display: -webkit-box;
+  margin: 0;
+  padding-right: 44px;
+  overflow: hidden;
+  color: light-dark(#292d30, #edf0f1);
+  font-size: 16px;
+  font-weight: 780;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .effie-note-list .effie-card-preview {
@@ -91,16 +105,24 @@
   font-size: 11px;
   line-height: 1.55;
   overflow-wrap: anywhere;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
+}
+
+.effie-note-list .effie-card-divider {
+  flex: 0 0 auto;
+  height: 1px;
+  margin-top: auto;
+  margin-bottom: 8px;
+  background: light-dark(#ece7dd, #2f363a);
 }
 
 .effie-note-list .effie-card-footer {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-top: auto;
-  padding-top: 10px;
+  margin-top: 0;
+  padding-top: 0;
   color: light-dark(#8a857d, #8f999e);
   font-size: 9px;
   line-height: 1.4;

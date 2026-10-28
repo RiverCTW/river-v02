@@ -88,7 +88,10 @@ function EffieNoteCard({ note, preview, selected, deletedView, folderLabel, onSe
     if (measureRef.current) setTextWidth(measureRef.current.getBoundingClientRect().width);
   }, [displayTitle, size.width]);
 
-  const tabWidth = Math.max(64, Math.min(textWidth + TAB_PADDING, size.width * 0.6, size.width - 96));
+  const tabWidth = Math.max(
+    size.width * 0.3,
+    Math.min(textWidth + TAB_PADDING, size.width * 0.6, size.width - 96),
+  );
 
   return (
     <article
@@ -108,7 +111,9 @@ function EffieNoteCard({ note, preview, selected, deletedView, folderLabel, onSe
       </div>
       <button className={`note-heart ${note.favorite ? "is-favorite" : ""}`} onClick={(event) => { event.stopPropagation(); onFavorite(); }} aria-label={note.favorite ? "取消收藏" : "收藏"}>{note.favorite ? "♥" : "♡"}</button>
       <div className="effie-card-content">
+        <div className="effie-card-title tmi-note-title">{displayTitle}</div>
         <div className="effie-card-preview tmi-note-preview">{preview || "还没有内容，打开后开始学习。"}</div>
+        <div className="effie-card-divider" aria-hidden="true" />
         <div className="effie-card-footer"><span><Icon name="clock" /> {new Date(note.updatedAt).toLocaleDateString("zh-CN")}</span><span>{folderLabel}</span></div>
         {!deletedView && <button className="river-test-open" onClick={(event) => { event.stopPropagation(); onOpen(); }}>打开</button>}
         {!deletedView && <button className="river-test-delete" onClick={(event) => { event.stopPropagation(); onDelete(); }}>删除</button>}
