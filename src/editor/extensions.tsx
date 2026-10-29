@@ -18,18 +18,20 @@ import {
   enterInEmptyItem,
   findListItemById,
   findNearestListItem,
+  getSelectedStructuralItems,
   indentSelectedItems,
   insertSiblingAfterSubtree,
   isWholeDocumentSelected,
   itemHasVisibleMarker,
   moveSubtree,
+  moveSubtrees,
   outdentSelectedItems,
   replaceDocumentWithEmptyOutline,
   RiverHistory,
-  selectStructuralItem,
   splitItemAtSelection,
 } from "./commands";
 import { parseSemanticMarkers, semanticClassName } from "./semanticMarkers";
+import { RiverImage } from "./imageExtension";
 
 function currentPosition(getPos: () => number | undefined): number | null {
   const position = getPos();
@@ -110,6 +112,16 @@ function moveSelectionToTextblockBoundary(
   }
 }
 
+function textblockRanges(doc: Editor["state"]["doc"]): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  doc.descendants((node, position) => {
+    if (!node.isTextblock) return true;
+    ranges.push({ start: position + 1, end: position + node.content.size });
+    return false;
+  });
+  return ranges;
+}
+
 function moveHorizontalSelection(view: Editor["view"], direction: -1 | 1, extend: boolean): boolean {
   const { state } = view;
   const { selection, doc } = state;
@@ -127,9 +139,18 @@ function moveHorizontalSelection(view: Editor["view"], direction: -1 | 1, extend
     position = direction < 0 ? selection.from : selection.to;
   } else {
     position = $head.pos + direction;
-    // Crossing a textblock boundary is handled by ProseMirror's native
-    // navigation, which understands document order and nested outline items.
-    if (position < start || position > end) return false;
+    if (position < start || position > end) {
+      // Chromium leaves Shift+Arrow at the end of a contenteditable textblock
+      // when the next textblock is a sibling outline row. Move the extension
+      // endpoint explicitly so a selection can cross rows in document order.
+      if (!extend) return false;
+      const ranges = textblockRanges(doc);
+      const currentIndex = ranges.findIndex((range) => $head.pos >= range.start && $head.pos <= range.end);
+      if (currentIndex < 0) return false;
+      const adjacent = ranges[currentIndex + direction];
+      if (!adjacent) return false;
+      position = direction < 0 ? adjacent.end : adjacent.start;
+    }
   }
 
   try {
@@ -141,6 +162,20 @@ function moveHorizontalSelection(view: Editor["view"], direction: -1 | 1, extend
   } catch {
     return false;
   }
+}
+
+function wrapInlineMarkerAtSelection(editor: Editor, marker: string): boolean {
+  const { from, to } = editor.state.selection;
+  const selected = editor.state.doc.textBetween(from, to, "\n");
+  const content = `${marker}${selected}${marker}`;
+  const transaction = editor.state.tr.insertText(content, from, to);
+  if (selected) {
+    transaction.setSelection(TextSelection.create(transaction.doc, from + marker.length, from + marker.length + selected.length));
+  } else {
+    transaction.setSelection(TextSelection.create(transaction.doc, from + marker.length));
+  }
+  editor.view.dispatch(transaction);
+  return true;
 }
 
 /**
@@ -159,7 +194,7 @@ export const RiverDocument = TiptapNode.create({
 });
 
 export const OutlineListItem = ListItem.extend({
-  draggable: true,
+  draggable: false,
   addAttributes() {
     return {
       ...this.parent?.(),
@@ -274,83 +309,7 @@ export const OutlineListItem = ListItem.extend({
         editor.view.dispatch(transaction);
       });
 
-      const dragHandle = document.createElement("span");
-      dragHandle.className = "river-outline-drag-handle";
-      dragHandle.contentEditable = "false";
-      dragHandle.title = "拖动完整知识分支";
-      dragHandle.textContent = "⠿";
       let stableId = String(node.attrs.nodeId || node.attrs.blockId || "");
-      const selectItem = () => {
-        const position = currentPosition(getPos);
-        if (position !== null) selectStructuralItem(editor, position);
-      };
-      // Pointer-based drag: large hit area, ghost preview, drop marker and
-      // edge auto-scroll. Pointer capture keeps the gesture alive even when the
-      // pointer leaves the handle or the viewport.
-      dragHandle.addEventListener("mousedown", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        selectItem();
-
-        const startX = event.clientX;
-        const startY = event.clientY;
-        let pointerDragging = false;
-        let lastTargetId: string | null = null;
-        let lastPlacement: "before" | "after" = "after";
-
-        const clearDropMarkers = () => {
-          document.querySelectorAll(".river-outline-item.is-drop-before, .river-outline-item.is-drop-after").forEach((element) => {
-            element.classList.remove("is-drop-before", "is-drop-after");
-          });
-        };
-        const targetAt = (clientX: number, clientY: number) => {
-          const stack = document.elementsFromPoint(clientX, clientY) as HTMLElement[];
-          return stack
-            .map((element) => element.closest<HTMLElement>(".river-outline-item"))
-            .find((candidate): candidate is HTMLElement => Boolean(candidate && candidate !== wrapper)) || null;
-        };
-        const handlePointerMove = (moveEvent: MouseEvent) => {
-          if (!pointerDragging && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 4) return;
-          pointerDragging = true;
-          moveEvent.preventDefault();
-          moveEvent.stopPropagation();
-          wrapper.classList.add("is-dragging");
-          clearDropMarkers();
-          const targetElement = targetAt(moveEvent.clientX, moveEvent.clientY);
-          if (!targetElement || targetElement === wrapper) return;
-          const targetId = targetElement.dataset.nodeId || targetElement.dataset.blockId;
-          if (!targetId || targetId === stableId) return;
-          const bounds = targetElement.getBoundingClientRect();
-          lastTargetId = targetId;
-          lastPlacement = moveEvent.clientY < bounds.top + bounds.height * 0.65 ? "before" : "after";
-          targetElement.classList.add(lastPlacement === "before" ? "is-drop-before" : "is-drop-after");
-        };
-        const handlePointerUp = (upEvent: MouseEvent) => {
-          upEvent.preventDefault();
-          upEvent.stopPropagation();
-          window.removeEventListener("mousemove", handlePointerMove, true);
-          window.removeEventListener("mouseup", handlePointerUp, true);
-          wrapper.classList.remove("is-dragging");
-          if (pointerDragging) {
-            if (lastTargetId && lastTargetId !== stableId) moveSubtree(editor, stableId, lastTargetId, lastPlacement);
-          }
-          clearDropMarkers();
-        };
-        window.addEventListener("mousemove", handlePointerMove, true);
-        window.addEventListener("mouseup", handlePointerUp, true);
-      });
-      dragHandle.addEventListener("dragstart", (event) => {
-        const stableId = String(node.attrs.nodeId || node.attrs.blockId || "");
-        event.stopPropagation();
-        event.dataTransfer?.setData("application/x-river-outline-node", JSON.stringify({ id: stableId }));
-        event.dataTransfer?.setData("text/plain", stableId);
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-        beginSubtreeDrag(stableId);
-        selectItem();
-      });
-      dragHandle.addEventListener("dragend", () => {
-        window.setTimeout(endSubtreeDrag, 0);
-      });
 
       const kind = document.createElement("span");
       kind.className = "river-outline-kind";
@@ -393,8 +352,97 @@ export const OutlineListItem = ListItem.extend({
 
       const contentDOM = document.createElement("div");
       contentDOM.className = "river-outline-content";
-      controls.append(toggle, dragHandle, kind, uncertainty, blockType);
+      controls.append(toggle, kind, uncertainty, blockType);
       wrapper.append(controls, contentDOM);
+
+      // Effie-style drag: there is no dedicated handle. Select text inside an
+      // item, then drag from the selection; the whole structural item moves.
+      wrapper.addEventListener("dragstart", (event) => {
+        const position = currentPosition(getPos);
+        if (position === null) return;
+        const currentNode = editor.state.doc.nodeAt(position);
+        if (!currentNode) return;
+        const { selection } = editor.state;
+        const itemEnd = position + currentNode.nodeSize;
+        const inside = selection.from >= position && selection.from <= itemEnd && selection.to <= itemEnd;
+        if (!inside) {
+          event.preventDefault();
+          return;
+        }
+        const id = String(currentNode.attrs.nodeId || currentNode.attrs.blockId || stableId);
+        if (!id) return;
+        event.stopPropagation();
+        event.dataTransfer?.setData("application/x-river-outline-node", JSON.stringify({ id }));
+        event.dataTransfer?.setData("text/plain", id);
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+        beginSubtreeDrag(id);
+      });
+      wrapper.addEventListener("dragend", () => {
+        window.setTimeout(endSubtreeDrag, 0);
+      });
+
+      controls.addEventListener("mousedown", (event) => {
+        if (event.button !== 0) return;
+        if ((event.target as HTMLElement).closest("select")) return;
+        const hits = getSelectedStructuralItems(editor);
+        let sourceIds = hits.map((hit) => hit.id);
+        if (!sourceIds.includes(stableId)) sourceIds = [stableId];
+        // Text selection belongs to the browser. A subtree move starts only
+        // from the existing bullet/control gutter, with no extra drag handle.
+        const startX = event.clientX;
+        const startY = event.clientY;
+        let moved = false;
+        let targetId: string | null = null;
+        let placement: "before" | "after" = "after";
+        const sources = new Set(sourceIds);
+        const clearMarkers = () => {
+          document.querySelectorAll(".river-outline-item.is-dragging, .river-outline-item.is-drop-before, .river-outline-item.is-drop-after").forEach((element) => {
+            element.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
+          });
+        };
+        const handleMove = (moveEvent: MouseEvent) => {
+          if (!moved && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 5) return;
+          if (!moved) {
+            moved = true;
+            window.getSelection()?.removeAllRanges();
+          }
+          moveEvent.preventDefault();
+          moveEvent.stopPropagation();
+          clearMarkers();
+          for (const id of sourceIds) {
+            document.querySelector<HTMLElement>(`[data-node-id="${id}"], [data-block-id="${id}"]`)?.classList.add("is-dragging");
+          }
+          const stack = document.elementsFromPoint(moveEvent.clientX, moveEvent.clientY) as HTMLElement[];
+          const target = stack
+            .map((element) => element.closest<HTMLElement>(".river-outline-item"))
+            .find((candidate): candidate is HTMLElement => Boolean(candidate && !sources.has(candidate.dataset.nodeId || candidate.dataset.blockId || ""))) || null;
+          if (!target) return;
+          const id = target.dataset.nodeId || target.dataset.blockId;
+          if (!id) return;
+          const bounds = target.getBoundingClientRect();
+          placement = moveEvent.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+          targetId = id;
+          target.classList.add(placement === "before" ? "is-drop-before" : "is-drop-after");
+        };
+        const handleUp = (upEvent: MouseEvent) => {
+          window.removeEventListener("mousemove", handleMove, true);
+          window.removeEventListener("mouseup", handleUp, true);
+          if (moved) {
+            upEvent.preventDefault();
+            upEvent.stopPropagation();
+            if (targetId) moveSubtrees(editor, sourceIds, targetId, placement);
+            const suppressClick = (clickEvent: MouseEvent) => {
+              clickEvent.preventDefault();
+              clickEvent.stopPropagation();
+            };
+            document.addEventListener("click", suppressClick, true);
+            window.setTimeout(() => document.removeEventListener("click", suppressClick, true), 0);
+          }
+          clearMarkers();
+        };
+        window.addEventListener("mousemove", handleMove, true);
+        window.addEventListener("mouseup", handleUp, true);
+      });
 
       const renderAttributes = (nextNode: typeof node) => {
         const itemType = String(nextNode.attrs.itemType || "knowledge");
@@ -541,6 +589,94 @@ export const SemanticDecoration = Extension.create({
   },
 });
 
+export const SEARCH_HIGHLIGHT_META = "riverSearchHighlight";
+interface SearchHighlightState {
+  query: string;
+  decorations: DecorationSet;
+}
+const searchHighlightKey = new PluginKey<SearchHighlightState>("riverSearchHighlight");
+
+function buildSearchDecorations(doc: any, query: string): DecorationSet {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return DecorationSet.empty;
+  const decorations: Decoration[] = [];
+  doc.descendants((node: any, pos: number) => {
+    if (!node.isText) return;
+    const text = String(node.text || "");
+    const lower = text.toLowerCase();
+    let from = 0;
+    while (from < lower.length) {
+      const index = lower.indexOf(normalized, from);
+      if (index === -1) break;
+      decorations.push(Decoration.inline(pos + index, pos + index + normalized.length, { class: "river-search-match" }));
+      from = index + Math.max(1, normalized.length);
+    }
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
+export const SearchHighlight = Extension.create({
+  name: "searchHighlight",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: searchHighlightKey,
+        state: {
+          init: (_config, state) => ({ query: "", decorations: DecorationSet.empty }),
+          apply: (transaction, previous, _oldState, newState) => {
+            const next = transaction.getMeta(SEARCH_HIGHLIGHT_META);
+            const query = typeof next === "string" ? next : previous.query;
+            if (query !== previous.query || transaction.docChanged) {
+              return { query, decorations: buildSearchDecorations(newState.doc, query) };
+            }
+            return previous;
+          },
+        },
+        props: {
+          decorations(state) {
+            return searchHighlightKey.getState(state)?.decorations || DecorationSet.empty;
+          },
+        },
+      }),
+    ];
+  },
+});
+
+function buildOutlineLineNumbers(doc: any): DecorationSet {
+  const decorations: Decoration[] = [];
+  let lineNumber = 0;
+  doc.descendants((node: any, position: number) => {
+    if (node.type.name !== "listItem") return true;
+    lineNumber += 1;
+    decorations.push(Decoration.node(position, position + node.nodeSize, {
+      "data-river-line-number": String(lineNumber),
+    }));
+    return true;
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
+/** Keep line numbers in editor state so nested lists stay sequential and DOM-safe. */
+export const OutlineLineNumbers = Extension.create({
+  name: "outlineLineNumbers",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey("outlineLineNumbers"),
+        state: {
+          init: (_config, state) => buildOutlineLineNumbers(state.doc),
+          apply: (transaction, previous) => transaction.docChanged ? buildOutlineLineNumbers(transaction.doc) : previous,
+        },
+        props: {
+          decorations(state) {
+            return this.getState(state);
+          },
+        },
+      }),
+    ];
+  },
+});
+
 /**
  * Structural shortcuts must live inside the ProseMirror keydown pipeline.
  *
@@ -587,6 +723,12 @@ export const OutlineKeyboard = Extension.create({
             if (event.repeat && suppressedRepeatKey === event.key) {
               event.preventDefault();
               return true;
+            }
+
+            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+              event.preventDefault();
+              event.stopPropagation();
+              return wrapInlineMarkerAtSelection(editor, "**");
             }
 
             if ((event.key === "Home" || event.key === "End")
@@ -840,6 +982,9 @@ export function createOutlineExtensions() {
     Highlight.configure({ multicolor: true }),
     Underline,
     SemanticDecoration,
+    SearchHighlight,
+    OutlineLineNumbers,
+    RiverImage,
     OutlineKeyboard,
     OutlineInputRules,
   ];
