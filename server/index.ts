@@ -225,7 +225,7 @@ function sendError(res: express.Response, error: unknown, status = 500) {
 app.get("/api/health", (req, res) => {
   res.json({
     ok: true,
-    service: "riverv0.22.1",
+    service: "riverv0.22.2",
     defaultModel: DEFAULT_MODEL,
     supportedModels: SUPPORTED_MODELS,
     ccSwitchOpenCodeConfigured: isLoopbackRequest(req) && Boolean(readCcSwitchOpenCodeKey()),

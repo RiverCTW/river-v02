@@ -1,4 +1,4 @@
-import { Extension, InputRule, Node as TiptapNode, type Editor } from "@tiptap/core";
+import { Extension, InputRule, Mark, Node as TiptapNode, mergeAttributes, type Editor } from "@tiptap/core";
 import BulletList from "@tiptap/extension-bullet-list";
 import Highlight from "@tiptap/extension-highlight";
 import ListItem from "@tiptap/extension-list-item";
@@ -156,6 +156,35 @@ export const RiverDocument = TiptapNode.create({
   name: "doc",
   topNode: true,
   content: "(bulletList|orderedList)+",
+});
+
+/**
+ * River bold is a real ProseMirror mark, but unlike TipTap's stock Bold
+ * extension it deliberately has no `**text**` input rule. The double-star
+ * syntax belongs to River's pink semantic marker and must remain untouched.
+ */
+export const RiverBold = Mark.create({
+  name: "bold",
+  inclusive: true,
+  keepOnSplit: false,
+  parseHTML() {
+    return [
+      { tag: "strong" },
+      { tag: "b" },
+      {
+        style: "font-weight",
+        getAttrs: (value) => /^(bold|[6-9]\d\d)$/.test(String(value).trim()) ? null : false,
+      },
+    ];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["strong", mergeAttributes(HTMLAttributes), 0];
+  },
+  addKeyboardShortcuts() {
+    return {
+      "Mod-b": () => this.editor.commands.toggleMark(this.name),
+    };
+  },
 });
 
 export const OutlineListItem = ListItem.extend({
@@ -834,6 +863,7 @@ export function createOutlineExtensions() {
     }),
     RiverHistory,
     RiverDocument,
+    RiverBold,
     BulletList.configure({ keepMarks: true, keepAttributes: true }),
     OutlineListItem,
     Placeholder.configure({ placeholder: "开始输入…按 Enter 新建条目，Tab 缩进，Shift+Tab 提升层级。" }),

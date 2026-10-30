@@ -144,7 +144,7 @@ export function LibraryView() {
   const headerLabel = view === "favorites" ? "收藏夹" : view === "recent" ? "最近使用" : view === "trash" ? "最近删除" : view === "library" ? "本地资料库" : view === "preferences" ? "笔记偏好" : view === "folder" ? folders.find((folder) => folder.id === selectedFolderId)?.name || "文件夹" : view === "search" ? `搜索：${searchQuery}` : "全部笔记";
 
   return (
-    <div className={`tmi-panel ${focusMode ? "is-focus" : ""}`} style={{ padding: 12 }}>
+    <div className={`tmi-panel ${focusMode ? "is-focus" : ""}`}>
       <div className="tmi-window">
         <div className="tmi-window-top"><div className="tmi-window-dots"><i /><i /><i /></div><div className="tmi-window-title">River 笔记库</div></div>
         <div className={`tmi-window-body ${focusMode ? "is-focus" : ""} ${uiStyle === "effie" ? "tmi-effie-grid" : "tmi-notability-grid"}`}>

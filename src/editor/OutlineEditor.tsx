@@ -321,6 +321,7 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialContent = useMemo(() => documentForBundle(bundle), []);
   const [slash, setSlash] = useState<SlashState | null>(null);
+  const [boldActive, setBoldActive] = useState(false);
   const slashRef = useRef<SlashState | null>(null);
   slashRef.current = slash;
 
@@ -441,6 +442,21 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
   });
   editorRef.current = editor;
 
+  useEffect(() => {
+    if (!editor) return;
+    const syncBoldState = () => {
+      const storedBold = editor.state.storedMarks?.some((mark) => mark.type.name === "bold") || false;
+      setBoldActive(editor.isActive("bold") || storedBold);
+    };
+    editor.on("selectionUpdate", syncBoldState);
+    editor.on("transaction", syncBoldState);
+    syncBoldState();
+    return () => {
+      editor.off("selectionUpdate", syncBoldState);
+      editor.off("transaction", syncBoldState);
+    };
+  }, [editor]);
+
   const syncSlashMenu = (currentEditor: Editor) => {
     const previous = slashRef.current;
     if (previous) {
@@ -548,6 +564,31 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
     else item.run?.(editor);
   };
 
+  const toggleBold = () => {
+    const { state } = editor;
+    const { selection } = state;
+    const boldType = state.schema.marks.bold;
+    if (!boldType) return;
+    if (selection.empty) {
+      const currentMarks = state.storedMarks || selection.$from.marks();
+      const hasBold = currentMarks.some((mark) => mark.type === boldType);
+      const nextMarks = hasBold
+        ? currentMarks.filter((mark) => mark.type !== boldType)
+        : [...currentMarks, boldType.create()];
+      editor.view.dispatch(state.tr.setStoredMarks(nextMarks));
+      editor.view.focus();
+      setBoldActive(!hasBold);
+      return;
+    }
+    editor.chain().focus().toggleMark("bold").run();
+    if (!selection.empty) {
+      // A selected word is bolded, but the next typed segment should not
+      // inherit the mark unless the user explicitly turns Cmd+B on again.
+      editor.view.dispatch(editor.state.tr.setStoredMarks([]));
+    }
+    setBoldActive(editor.isActive("bold"));
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const native = event.nativeEvent as KeyboardEvent & { isComposing?: boolean };
     if (native.isComposing || native.keyCode === 229) return;
@@ -612,6 +653,16 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
       onToggleFocus();
       return;
     }
+
+    if (event.key === "Enter" && !event.shiftKey) {
+      // Cmd+B typing mode belongs to one outline line. Clear only the stored
+      // mark after the structural Enter transaction has created the next line.
+      globalThis.setTimeout(() => {
+        const currentEditor = editorRef.current;
+        if (!currentEditor) return;
+        currentEditor.view.dispatch(currentEditor.state.tr.setStoredMarks([]));
+      }, 0);
+    }
     // Tab, Enter and structural deletion are handled by the ProseMirror
     // plugin in extensions.tsx. That pipeline runs after EditorView flushes
     // pending DOM input and selection changes, so it never acts on a stale
@@ -657,6 +708,7 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
           <button className="river-chip river-format-chip" data-testid="river-format-h1" onClick={() => setHeading(1)} title="一级标题">H1</button>
           <button className="river-chip river-format-chip" data-testid="river-format-h2" onClick={() => setHeading(2)} title="二级标题">H2</button>
           <button className="river-chip river-format-chip" data-testid="river-format-h3" onClick={() => setHeading(3)} title="三级标题">H3</button>
+          <button className={`river-chip river-format-chip river-bold-chip ${boldActive ? "selected" : ""}`} data-testid="river-format-bold" aria-pressed={boldActive} onMouseDown={(event) => event.preventDefault()} onClick={toggleBold} title="加粗当前选区或本行后续输入（Cmd+B）">Cmd+B</button>
           <button className="river-chip" onClick={() => wrapSelection("**")} title="粉色强调：**文字**">**</button>
           <button className="river-chip" onClick={() => wrapSelection("*")} title="金色斜体：*文字*">*</button>
           <button className="river-chip" onClick={() => wrapSelection("::")} title="黄色标注：::文字::">::</button>

@@ -182,7 +182,7 @@ export function App() {
       </header>
       <div className={`river-sync-state is-${syncState}`}>{syncState === "syncing" ? "正在同步…" : syncState === "conflict" ? "同步冲突" : syncState === "offline" ? "离线草稿" : syncState === "error" ? "同步失败" : "已同步"}</div>
       {syncState === "conflict" && <div className="river-conflict-banner" role="alert"><span>{syncDetail || "这篇笔记的云端版本已被另一个标签页更新。本地修改仍保留在本机。"}</span><button className="river-button" onClick={() => void exportConflictCopy()}>导出本地冲突副本</button><button className="river-button" onClick={async () => { if (window.confirm("载入云端版本会替换当前浏览器中的工作区；请先导出本地冲突副本。继续？")) { await flushActiveEditor(); await reloadWorkspaceFromServer(user.id); window.location.reload(); } }}>载入云端版本</button></div>}
-      <main className="river-main">
+      <main className={`river-main ${bundle ? "river-main-note" : "river-main-library"}`}>
         {bundle ? <KnowledgeEditor /> : <LibraryView />}
       </main>
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}

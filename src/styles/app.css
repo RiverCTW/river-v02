@@ -149,6 +149,24 @@ button {
   padding: 14px;
 }
 
+.river-main-library {
+  display: flex;
+  padding: 0;
+}
+
+#river-app .river-main-library > .tmi-panel {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+}
+
+#river-app .river-main-library .tmi-window {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .river-panel {
   border: 1px solid light-dark(#ded9d0, #2b3135);
   border-radius: 10px;
@@ -382,6 +400,7 @@ button {
 
 .river-outline-toolbar > .river-chip-row { min-width: 0; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: thin; }
 .river-outline-toolbar .river-format-chip { flex: 0 0 auto; height: 20px; min-width: 32px; }
+.river-outline-toolbar .river-bold-chip { min-width: 58px; }
 
 .river-outline-toolbar .river-chip {
   padding: 1px 6px;
@@ -961,6 +980,11 @@ button {
 
 .river-outline-editor p {
   min-height: 1.85em;
+}
+
+.river-outline-editor strong,
+.river-outline-editor b {
+  font-weight: 760;
 }
 
 .river-outline-item {
