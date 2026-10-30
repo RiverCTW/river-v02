@@ -108,3 +108,38 @@ describe("locked cloud inputs during new-device hydration", () => {
     expect(result.revision).toBe(1);
   });
 });
+
+describe("deletedNoteIds tombstones", () => {
+  it("filters tombstoned notes and every child record during merge", () => {
+    const local = {
+      format: "river-backup", version: 2,
+      notes: [{ id: "keep", title: "keep" }, { id: "gone", title: "gone" }],
+      sources: [{ id: "s-gone", noteId: "gone" }, { id: "s-keep", noteId: "keep" }],
+      profiles: [{ noteId: "gone" }, { noteId: "keep" }],
+      introductions: [{ noteId: "gone" }],
+      nodes: [{ id: "n-gone", noteId: "gone" }],
+      blocks: [{ id: "b-gone", noteId: "gone" }],
+      learningMaps: [{ noteId: "gone", kind: "questions" }],
+      chatMessages: [{ id: "c-gone", noteId: "gone" }],
+      settings: [],
+    };
+    const remote = {
+      format: "river-backup", version: 2,
+      notes: [{ id: "keep", title: "keep" }],
+      sources: [{ id: "s-keep", noteId: "keep" }],
+      profiles: [{ noteId: "keep" }],
+      introductions: [], nodes: [], blocks: [], learningMaps: [], chatMessages: [], settings: [],
+      deletedNoteIds: ["gone"],
+    };
+    const merged = mergeWorkspacePayloads(local, remote);
+    expect(merged.notes.map((note: any) => note.id)).toEqual(["keep"]);
+    expect(merged.sources.map((source: any) => source.id)).toEqual(["s-keep"]);
+    expect(merged.profiles.map((profile: any) => profile.noteId)).toEqual(["keep"]);
+    expect(merged.introductions).toHaveLength(0);
+    expect(merged.nodes).toHaveLength(0);
+    expect(merged.blocks).toHaveLength(0);
+    expect(merged.learningMaps).toHaveLength(0);
+    expect(merged.chatMessages).toHaveLength(0);
+    expect(merged.deletedNoteIds).toContain("gone");
+  });
+});

@@ -49,8 +49,10 @@ export function mergeWorkspacePayloads(local: any, remote: any) {
   const base = remote || local || {};
   const byId = (item: any) => String(item?.id || "");
   const byNote = (item: any) => String(item?.noteId || item?.key || "");
-  let sources = mergeRecords(local?.sources, remote?.sources, byId);
-  let profiles = mergeRecords(local?.profiles, remote?.profiles, byNote);
+  const tombstones = new Set<string>([...(remote?.deletedNoteIds || []), ...(local?.deletedNoteIds || [])].map(String));
+  const alive = (item: any) => !tombstones.has(String(item?.noteId || "")) && !tombstones.has(String(item?.id || ""));
+  let sources = mergeRecords(local?.sources, remote?.sources, byId).filter(alive);
+  let profiles = mergeRecords(local?.profiles, remote?.profiles, byNote).filter(alive);
   // Once a note has finished generation its sources and learning profile are
   // immutable on the server. A new device may still hold an older local cache,
   // so never let local merge overwrite those locked inputs.
@@ -67,20 +69,29 @@ export function mergeWorkspacePayloads(local: any, remote: any) {
     ...local,
     ...base,
     folders: mergeRecords(local?.folders, remote?.folders, byId),
-    notes: mergeRecords(local?.notes, remote?.notes, byId),
+    notes: mergeRecords(local?.notes, remote?.notes, byId).filter(alive),
     sources,
     profiles,
-    introductions: mergeRecords(local?.introductions, remote?.introductions, byNote),
-    nodes: mergeRecords(local?.nodes, remote?.nodes, byId),
-    blocks: mergeRecords(local?.blocks, remote?.blocks, byId),
+    introductions: mergeRecords(local?.introductions, remote?.introductions, byNote).filter(alive),
+    nodes: mergeRecords(local?.nodes, remote?.nodes, byId).filter(alive),
+    blocks: mergeRecords(local?.blocks, remote?.blocks, byId).filter(alive),
     settings: mergeRecords(local?.settings, remote?.settings, (item) => String(item?.key || "")),
-    learningMaps: mergeRecords(local?.learningMaps, remote?.learningMaps, (item) => `${item?.noteId || ""}:${item?.kind || ""}`),
-    chatMessages: mergeRecords(local?.chatMessages, remote?.chatMessages, byId),
+    learningMaps: mergeRecords(local?.learningMaps, remote?.learningMaps, (item) => `${item?.noteId || ""}:${item?.kind || ""}`).filter(alive),
+    chatMessages: mergeRecords(local?.chatMessages, remote?.chatMessages, byId).filter(alive),
+    deletedNoteIds: [...tombstones],
   };
 }
 
 async function mergeWorkspaceIntoLocal(payload: any) {
   await db.transaction("rw", [db.folders, db.notes, db.sources, db.profiles, db.introductions, db.nodes, db.blocks, db.settings, db.learningMaps, db.chatMessages], async () => {
+    const tombstones = Array.isArray(payload.deletedNoteIds) ? payload.deletedNoteIds.map(String) : [];
+    if (tombstones.length) {
+      await db.notes.bulkDelete(tombstones);
+      for (const table of [db.sources, db.profiles, db.introductions, db.nodes, db.blocks, db.learningMaps, db.chatMessages] as any[]) {
+        const keys = await table.where("noteId").anyOf(tombstones).primaryKeys();
+        if (keys.length) await table.bulkDelete(keys);
+      }
+    }
     await db.folders.bulkPut(payload.folders || []);
     await db.notes.bulkPut(payload.notes || []);
     await db.sources.bulkPut(deserializeSourcesFromBackup(payload.sources || []));
@@ -89,6 +100,9 @@ async function mergeWorkspaceIntoLocal(payload: any) {
     await db.nodes.bulkPut(payload.nodes || []);
     await db.blocks.bulkPut(payload.blocks || []);
     await db.settings.bulkPut(payload.settings || []);
+    if (tombstones.length) {
+      await db.settings.put({ key: "river.deletedNoteIds", value: tombstones, updatedAt: new Date().toISOString() });
+    }
     await db.learningMaps.bulkPut(payload.learningMaps || []);
     await db.chatMessages.bulkPut(payload.chatMessages || []);
   });
@@ -124,9 +138,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 async function createCloudWorkspacePayload() {
   const payload = await createBackupPayload();
+  const tombstoneSetting = (payload.settings || []).find((item: any) => item.key === "river.deletedNoteIds");
+  const deletedNoteIds = Array.isArray(tombstoneSetting?.value) ? tombstoneSetting.value.map(String) : [];
   const { nodes: _nodes, blocks: _blocks, ...payloadWithoutProjections } = payload as any;
   return {
     ...payloadWithoutProjections,
+    deletedNoteIds,
     sources: (payload.sources || []).map((source) => {
       const { originalBase64: _base64, originalBlob: _blob, ...rest } = source as any;
       return { ...rest, attachmentOmitted: true };
