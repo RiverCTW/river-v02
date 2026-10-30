@@ -26,6 +26,7 @@ test("v0.22.1 library is borderless and removes the unused outer frame", async (
       panelPadding: panel.padding,
       panelHeight: document.querySelector<HTMLElement>(".river-main-library > .tmi-panel")!.getBoundingClientRect().height,
       viewportHeight: innerHeight,
+      pageHeight: document.documentElement.scrollHeight,
       borderWidth: window.borderWidth,
       borderRadius: window.borderRadius,
       boxShadow: window.boxShadow,
@@ -34,6 +35,8 @@ test("v0.22.1 library is borderless and removes the unused outer frame", async (
   expect(frame.mainPadding).toBe("0px");
   expect(frame.panelPadding).toBe("0px");
   expect(frame.panelHeight).toBeGreaterThan(frame.viewportHeight - 100);
+  expect(frame.panelHeight).toBeLessThan(frame.viewportHeight);
+  expect(frame.pageHeight).toBeLessThanOrEqual(frame.viewportHeight + 2);
   expect(frame.borderWidth).toBe("0px");
   expect(frame.borderRadius).toBe("0px");
   expect(frame.boxShadow).toBe("none");
