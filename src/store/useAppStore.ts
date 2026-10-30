@@ -1042,7 +1042,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (generationWatchers.has(noteId)) return generationWatchers.get(noteId);
     try {
       const job = await getActiveFullLearningPackageJob(noteId);
-      if (!job) return;
+      if (!job) {
+        if (get().generationNoteId === noteId) {
+          set({
+            isGenerating: false, generationNoteId: null,
+            generationMessage: "", generationProgress: 0, generationStage: "",
+            generationPageRange: null, generationSectionTitle: null,
+            generationCurrentFile: null, generationTotalPages: 0,
+          });
+        }
+        return;
+      }
       set({
         isGenerating: true, generationNoteId: noteId, generationMessage: job.message,
         generationProgress: job.progress, generationStage: job.stage,

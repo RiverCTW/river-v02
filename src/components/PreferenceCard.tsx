@@ -6,6 +6,7 @@ export function PreferenceCard() {
   const bundle = useAppStore((state) => state.bundle);
   const saveLearningProfile = useAppStore((state) => state.saveLearningProfile);
   const generateTreeAction = useAppStore((state) => state.generateTreeAction);
+  const resumeGenerationForNote = useAppStore((state) => state.resumeGenerationForNote);
   const isGenerating = useAppStore((state) => state.isGenerating);
   const generationNoteId = useAppStore((state) => state.generationNoteId);
   const generationMessage = useAppStore((state) => state.generationMessage);
@@ -16,6 +17,7 @@ export function PreferenceCard() {
   const generationCurrentFile = useAppStore((state) => state.generationCurrentFile);
   const generateLargeTestTree = useAppStore((state) => state.generateLargeTestTree);
   const [open, setOpen] = useState(!bundle?.note.profileLockedAt);
+  const [generationStuck, setGenerationStuck] = useState(false);
   const [intent, setIntent] = useState<LearningIntent | null>(bundle?.profile?.intent || null);
   const [level, setLevel] = useState<UserLevel | null>(bundle?.profile?.level || null);
   const [purpose, setPurpose] = useState<LearningPurpose | null>(bundle?.profile?.purpose || null);
@@ -41,6 +43,13 @@ export function PreferenceCard() {
   useEffect(() => {
     if (locked) setOpen(false);
   }, [locked]);
+
+  useEffect(() => {
+    if (!generatingThisNote) { setGenerationStuck(false); return; }
+    setGenerationStuck(false);
+    const timer = setTimeout(() => setGenerationStuck(true), 120_000);
+    return () => clearTimeout(timer);
+  }, [generatingThisNote, generationProgress, generationMessage]);
 
   useEffect(() => {
     if (locked || !intent || !level || !purpose || (purpose === "custom" && !customPurpose.trim())) return;
@@ -96,8 +105,9 @@ export function PreferenceCard() {
       <div className="river-preference-question"><label><b>3.</b> 你学习这些内容是为了什么？</label><div className="river-chip-row">{(Object.keys(purposeLabels) as LearningPurpose[]).map((key) => <button key={key} disabled={locked} className={`river-chip ${purpose === key ? "selected" : ""}`} onClick={() => setPurpose(key)}>{purposeLabels[key]}</button>)}</div>{purpose === "custom" && <input className="river-input" disabled={locked} value={customPurpose} onChange={(event) => setCustomPurpose(event.target.value)} placeholder="请填写你的真实用途" />}</div>
       <div className="river-preference-question river-customization-field"><label>补充个性化要求 <small>选填</small></label><textarea className="river-input" disabled={locked} value={customization} onChange={(event) => setCustomization(event.target.value)} rows={2} placeholder="请输入您的个性化需求，如：生成中文笔记，保留课件的英文术语对照。" /></div>
       {generatingThisNote && <div className="river-generation-progress"><div><span title={generationMessage || "正在生成…"}>{generationMessage || "正在生成…"}</span><b>{generationProgress}%</b></div><div className="river-progress"><div style={{ width: `${Math.max(0, Math.min(100, generationProgress))}%` }} /></div><small title={progressDetail}>{progressDetail || "等待服务器返回真实处理阶段"}</small></div>}
-      {!locked && <button className={`river-generate-button ${complete && hasSources ? "is-ready" : ""}`} disabled={!complete || !hasSources || isGenerating} onClick={() => void generate()}>{!hasSources ? "上传课件后填写偏好以生成知识树" : !complete ? "填写笔记偏好以生成知识树" : generatingThisNote ? "后台正在生成…" : "生成知识树"}</button>}
-      {bundle.note.generationState === "failed" && <div className="river-status-line"><span className="river-status-dot error" />{bundle.note.generationError || "生成失败，可使用同一份资料和偏好重试。"}</div>}
+      {!locked && <button className={`river-generate-button ${complete && hasSources ? "is-ready" : ""}`} disabled={!complete || !hasSources || isGenerating} title={!hasSources ? "请先上传课件" : !complete ? "请完成三项学习偏好" : isGenerating ? "后台正在生成，请等待或重新检查任务" : "生成知识树"} onClick={() => void generate()}>{!hasSources ? "上传课件后填写偏好以生成知识树" : !complete ? "填写笔记偏好以生成知识树" : generatingThisNote ? "后台正在生成…" : "生成知识树"}</button>}
+      {generationStuck && generatingThisNote && <div className="river-status-line"><span className="river-status-dot error" />生成任务超过 2 分钟没有新进度。<button className="river-preference-toggle" onClick={() => void resumeGenerationForNote(bundle.note.id)}>重新检查任务</button></div>}
+      {bundle.note.generationState === "failed" && <div className="river-status-line"><span className="river-status-dot error" />{bundle.note.generationError || "生成失败，可使用同一份资料和偏好重试。"}<button className="river-preference-toggle" onClick={() => void generateTreeAction()}>重试生成</button></div>}
       {import.meta.env.DEV && <button className="river-button" onClick={() => void generateLargeTestTree(120)}>生成 120 节点测试树</button>}
     </section>
   );
