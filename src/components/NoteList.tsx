@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { db } from "../db/database";
 import type { Folder, Note, UIStyle } from "../types";
-import { FolderIcon, Icon } from "./IconSprite";
+import { Icon } from "./IconSprite";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
+import "../styles/note-cards.css";
 
 interface NoteListProps {
   notes: Note[];
@@ -27,18 +28,97 @@ interface NoteListProps {
 
 interface MenuState { x: number; y: number; note: Note }
 
-function tabWidthPercent(title: string): number {
-  const measured = Array.from(title.replace(/\s+/g, " ")).reduce((width, character) => width + (/[\u2e80-\u9fff]/u.test(character) ? 9 : 6), 0);
-  return Math.max(18, Math.min(50, ((52 + measured) / 760) * 100));
+const TAB_FONT = '600 11px "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
+const TAB_PADDING = 44;
+
+function outlinePath(width: number, height: number, requestedTab: number): string {
+  const w = Math.max(160, width);
+  const h = Math.max(120, height);
+  const t = Math.max(64, Math.min(requestedTab, w * 0.6, w - 96));
+  return [
+    "M20 1",
+    `H${t - 20}`,
+    `C${t - 8} 1 ${t} 6 ${t + 6} 15`,
+    `L${t + 18} 36`,
+    `C${t + 23} 46 ${t + 33} 53 ${t + 46} 53`,
+    `H${w - 28}`,
+    `C${w - 12} 53 ${w - 1} 67 ${w - 1} 88`,
+    `V${h - 24}`,
+    `C${w - 1} ${h - 10} ${w - 12} ${h - 1} ${w - 28} ${h - 1}`,
+    "H20",
+    `C8 ${h - 1} 1 ${h - 10} 1 ${h - 24}`,
+    "V20",
+    "C1 9 9 1 20 1",
+    "Z",
+  ].join(" ");
 }
 
-function EffieCardOutline({ title }: { title: string }) {
-  const tabEnd = Math.max(137, Math.min(380, (760 * tabWidthPercent(title)) / 100));
-  const curveStart = tabEnd;
+function EffieNoteCard({ note, preview, selected, deletedView, folderLabel, onSelect, onOpen, onDelete, onFavorite, onContext }: {
+  note: Note;
+  preview: string;
+  selected: boolean;
+  deletedView?: boolean;
+  folderLabel: string;
+  onSelect: () => void;
+  onOpen: () => void;
+  onDelete: () => void;
+  onFavorite: () => void;
+  onContext: (event: React.MouseEvent) => void;
+}) {
+  const cardRef = useRef<HTMLElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [size, setSize] = useState({ width: 320, height: 182 });
+  const [textWidth, setTextWidth] = useState(0);
+  const displayTitle = (note.title || "新建学习笔记").replace(/\s+/g, " ").trim() || "新建学习笔记";
+
+  useLayoutEffect(() => {
+    const element = cardRef.current;
+    if (!element) return;
+    const measure = () => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width && rect.height) setSize({ width: rect.width, height: rect.height });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useLayoutEffect(() => {
+    if (measureRef.current) setTextWidth(measureRef.current.getBoundingClientRect().width);
+  }, [displayTitle, size.width]);
+
+  const tabWidth = Math.max(
+    size.width * 0.3,
+    Math.min(textWidth + TAB_PADDING, size.width * 0.6, size.width - 96),
+  );
+
   return (
-    <svg className="effie-card-outline" viewBox="0 0 760 224" preserveAspectRatio="none" aria-hidden="true">
-      <path d={`M22 1 H${curveStart - 22} C${curveStart - 8} 1 ${curveStart} 7 ${curveStart + 7} 17 L${curveStart + 20} 37 C${curveStart + 25} 47 ${curveStart + 34} 53 ${curveStart + 46} 53 H716 C741 53 759 70 759 94 V198 C759 213 747 223 732 223 H27 C12 223 1 211 1 196 V28 C1 13 11 1 22 1 Z`} />
-    </svg>
+    <article
+      ref={cardRef}
+      className={`tmi-note effie-note-card ${selected ? "is-selected" : ""} ${note.pinned ? "is-pinned" : ""}`}
+      data-testid={`note-card-${note.id}`}
+      onClick={onSelect}
+      onDoubleClick={() => !deletedView && onOpen()}
+      onContextMenu={onContext}
+    >
+      <svg className="effie-card-outline" viewBox={`0 0 ${Math.max(160, size.width)} ${Math.max(120, size.height)}`} preserveAspectRatio="none" aria-hidden="true">
+        <path d={outlinePath(size.width, size.height, tabWidth)} />
+      </svg>
+      <span ref={measureRef} className="effie-card-tab-measure" style={{ font: TAB_FONT }} aria-hidden="true">{displayTitle}</span>
+      <div className="effie-card-tab" style={{ width: tabWidth }} title={displayTitle}>
+        <span className="effie-card-tab-label">{displayTitle}</span>
+      </div>
+      <button className={`note-heart ${note.favorite ? "is-favorite" : ""}`} onClick={(event) => { event.stopPropagation(); onFavorite(); }} aria-label={note.favorite ? "取消收藏" : "收藏"}>{note.favorite ? "♥" : "♡"}</button>
+      <div className="effie-card-content">
+        <div className="effie-card-title tmi-note-title">{displayTitle}</div>
+        <div className="effie-card-preview tmi-note-preview">{preview || "还没有内容，打开后开始学习。"}</div>
+        <div className="effie-card-divider" aria-hidden="true" />
+        <div className="effie-card-footer"><span><Icon name="clock" /> {new Date(note.updatedAt).toLocaleDateString("zh-CN")}</span><span>{folderLabel}</span></div>
+        {!deletedView && <button className="river-test-open" onClick={(event) => { event.stopPropagation(); onOpen(); }}>打开</button>}
+        {!deletedView && <button className="river-test-delete" onClick={(event) => { event.stopPropagation(); onDelete(); }}>删除</button>}
+      </div>
+    </article>
   );
 }
 
@@ -125,25 +205,19 @@ export function NoteList(props: NoteListProps) {
     <>
       <div className="tmi-note-list effie-note-list">
         {sortedNotes.map((note) => (
-          <article
-            className={`tmi-note effie-note-card ${selectedNoteId === note.id ? "is-selected" : ""} ${note.pinned ? "is-pinned" : ""}`}
+          <EffieNoteCard
             key={note.id}
-            data-testid={`note-card-${note.id}`}
-            onClick={() => onSelect(note.id)}
-            onDoubleClick={() => !deletedView && onOpen(note.id)}
-            onContextMenu={context(note)}
-          >
-            <EffieCardOutline title={note.title} />
-            <div className="effie-card-content">
-              <div className="effie-card-tab" style={{ maxWidth: `${tabWidthPercent(note.title)}%` }}><FolderIcon /><span>{note.title.replace(/\s+/g, " ")}</span></div>
-              <button className={`note-heart ${note.favorite ? "is-favorite" : ""}`} onClick={(event) => { event.stopPropagation(); props.onFavorite(note.id); }} aria-label={note.favorite ? "取消收藏" : "收藏"}>{note.favorite ? "♥" : "♡"}</button>
-              <div className="effie-card-title tmi-note-title">{note.title}</div>
-              <div className="effie-card-preview tmi-note-preview">{previews[note.id] || "还没有内容，打开后开始学习。"}</div>
-              <div className="effie-card-footer"><span><Icon name="clock" /> {new Date(note.updatedAt).toLocaleDateString("zh-CN")}</span><span>{folderName(note.folderId)}</span></div>
-              {!deletedView && <button className="river-test-open" onClick={(event) => { event.stopPropagation(); onOpen(note.id); }}>打开</button>}
-              {!deletedView && <button className="river-test-delete" onClick={(event) => { event.stopPropagation(); props.onDelete(note.id); }}>删除</button>}
-            </div>
-          </article>
+            note={note}
+            preview={previews[note.id] || ""}
+            selected={selectedNoteId === note.id}
+            deletedView={deletedView}
+            folderLabel={folderName(note.folderId)}
+            onSelect={() => onSelect(note.id)}
+            onOpen={() => onOpen(note.id)}
+            onDelete={() => props.onDelete(note.id)}
+            onFavorite={() => props.onFavorite(note.id)}
+            onContext={context(note)}
+          />
         ))}
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.note)} onClose={() => setMenu(null)} />}

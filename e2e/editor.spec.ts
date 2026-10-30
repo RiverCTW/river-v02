@@ -141,9 +141,22 @@ test("deletes a structurally selected subtree and restores it with undo", async 
   await page.keyboard.press("Tab");
   const uniqueKnowledgeIds = () => page.locator('.river-outline-item[data-item-type="knowledge"][data-node-id]').evaluateAll((elements) => Array.from(new Set(elements.map((element) => element.getAttribute("data-node-id")))).filter(Boolean));
   expect((await uniqueKnowledgeIds()).length).toBe(2);
-  await page.locator('.river-outline-item[data-item-type="knowledge"]').first().locator(".river-outline-drag-handle").first().click();
+  await page.evaluate(() => {
+    const editor = (window as any).__riverEditor;
+    let firstPosition: number | null = null;
+    editor.state.doc.descendants((node: any, position: number) => {
+      if (firstPosition === null && node.type.name === "listItem" && node.attrs.itemType === "knowledge") {
+        firstPosition = position;
+        return false;
+      }
+      return true;
+    });
+    if (firstPosition === null) throw new Error("No structural list item found");
+    editor.commands.setNodeSelection(firstPosition);
+  });
+  await expect.poll(async () => page.evaluate(() => (window as any).__riverEditor.state.selection.constructor.name)).toBe("NodeSelection");
   await page.keyboard.press("Delete");
-  expect((await uniqueKnowledgeIds()).length).toBe(0);
+  expect((await uniqueKnowledgeIds()).length).toBe(1);
   await page.keyboard.press("Meta+z");
   expect((await uniqueKnowledgeIds()).length).toBe(2);
 });

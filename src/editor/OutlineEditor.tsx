@@ -5,7 +5,7 @@ import { isHistoryTransaction } from "@tiptap/pm/history";
 import { nanoid } from "nanoid";
 import type { ContentBlock, ContentBlockType, EditorDocumentSnapshot, KnowledgeNode, NoteBundle } from "../types";
 import { emptyOutlineDocument, nodesToTiptap, normalizeEditorDocument, tiptapToNodes, type TiptapNode } from "./convert";
-import { createOutlineExtensions, handlePlainTextPaste } from "./extensions";
+import { createOutlineExtensions, handlePlainTextPaste, SEARCH_HIGHLIGHT_META } from "./extensions";
 import { registerEditorFlush, registerEditorTitleRenamer } from "./editorFlush";
 import { cacheEditorSnapshot } from "./snapshotCache";
 import { Icon } from "../components/IconSprite";
@@ -27,6 +27,7 @@ export interface OutlineEditorProps {
   registerFlush?: (flush: (() => void | Promise<void>) | null) => void;
   compact?: boolean;
   readOnly?: boolean;
+  searchHighlight?: string;
 }
 
 interface SlashState {
@@ -110,11 +111,11 @@ const FORMAT_SLASH_ITEMS: SlashMenuItem[] = [
   { id: "comment", label: "评论", icon: "pen", grid: true, run: (editor) => wrapInlineMarker(editor, "++") },
   { id: "code", label: "行内代码", icon: "code", grid: true, run: (editor) => wrapInlineMarker(editor, "`") },
   { id: "quote", label: "引用", icon: "quote", grid: true, run: (editor) => applyBlockType(editor, "quote") },
+  { id: "comment-block", label: "评论块", icon: "comment", grid: true, run: (editor) => applyBlockType(editor, "comment") },
+  { id: "code-block", label: "代码块", icon: "codeblock", grid: true, run: (editor) => applyBlockType(editor, "code") },
   { id: "align-left", label: "左对齐", icon: "align-left", grid: true, run: (editor) => applyAlignment(editor, "left") },
   { id: "align-center", label: "居中", icon: "align-center", grid: true, run: (editor) => applyAlignment(editor, "center") },
-  { id: "align-right", label: "右对齐", icon: "align-right", grid: true, run: (editor) => applyAlignment(editor, "right") },
-  { id: "align-justify", label: "两端对齐", icon: "align-justify", grid: true, run: (editor) => applyAlignment(editor, "justify") },
-  { id: "plain", label: "清除格式", icon: "plain", grid: true, run: (editor) => clearFormatting(editor) },
+  { id: "divider", label: "分隔线", icon: "divider", grid: true, run: (editor) => applyBlockType(editor, "divider") },
 ];
 
 const INSERT_SLASH_ITEMS: SlashMenuItem[] = [
@@ -167,6 +168,15 @@ function SlashMenuIcon({ name }: { name: string }) {
   }
   if (name === "quote") {
     return <svg {...common}><path d="M5 7h5v5H7c0 2 .8 3.3 3 4M14 7h5v5h-3c0 2 .8 3.3 3 4"/></svg>;
+  }
+  if (name === "comment") {
+    return <svg {...common}><path d="M5 18 3 21v-5a8 8 0 1 1 3 4"/><path d="M8 11h8M8 14h5"/></svg>;
+  }
+  if (name === "codeblock") {
+    return <svg {...common}><path d="M8 8 4 12l4 4M16 8l4 4-4 4M13 5l-2 14"/></svg>;
+  }
+  if (name === "divider") {
+    return <svg {...common}><path d="M4 12h16M6 6h12M6 18h12"/></svg>;
   }
   if (name.startsWith("align-")) {
     const lines = name === "align-center" ? [6, 4, 6, 4] : name === "align-right" ? [3, 6, 4, 6] : [4, 6, 4, 6];
@@ -264,7 +274,11 @@ function insertLink(editor: Editor): boolean {
   if (!url?.trim()) return false;
   const { from, to } = editor.state.selection;
   const selected = editor.state.doc.textBetween(from, to, "\n").trim();
-  editor.chain().focus().insertContentAt({ from, to }, selected || url.trim()).run();
+  if (!selected) {
+    editor.chain().focus().insertContent(url.trim()).run();
+    return true;
+  }
+  editor.chain().focus().setTextSelection({ from, to }).extendMarkRange("link").setLink({ href: url.trim(), target: "_blank", rel: "noopener noreferrer" }).run();
   return true;
 }
 
@@ -303,7 +317,7 @@ function docSignature(value: unknown): string {
   });
 }
 
-export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggleFocus, registerFlush, compact = false, readOnly = false }: OutlineEditorProps) {
+export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggleFocus, registerFlush, compact = false, readOnly = false, searchHighlight = "" }: OutlineEditorProps) {
   const editorInstanceId = instanceId || `main:${bundle.note.id}`;
   const editorRef = useRef<Editor | null>(null);
   const changeHandler = useRef(onChange);
@@ -510,6 +524,18 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
   }, [editor, readOnly]);
 
   useEffect(() => {
+    if (!editor) return;
+    const transaction = editor.state.tr
+      .setMeta(SEARCH_HIGHLIGHT_META, searchHighlight)
+      .setMeta("addToHistory", false);
+    editor.view.dispatch(transaction);
+    if (!searchHighlight.trim()) return;
+    window.requestAnimationFrame(() => {
+      editor.view.dom.querySelector<HTMLElement>(".river-search-match")?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }, [editor, searchHighlight, bundle.note.id]);
+
+  useEffect(() => {
     if (!editor || !import.meta.env.DEV) return;
     (window as any).__riverEditors ??= {};
     (window as any).__riverEditors[editorInstanceId] = editor;
@@ -651,6 +677,13 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
       event.preventDefault();
       event.stopPropagation();
       onToggleFocus();
+      return;
+    }
+
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleBold();
       return;
     }
 
