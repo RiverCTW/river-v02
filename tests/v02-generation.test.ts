@@ -10,7 +10,7 @@ function payloadFor(system: string) {
   if (system.includes("课件结构分析器")) {
     return {
       chapterTitle: "测试章节",
-      sections: [{ id: "s1", title: "小节一", role: "key", startPage: 1, endPage: 1, summary: "说明", keyPoints: ["要点"], examples: [] }],
+      sections: [{ id: "s1", title: "小节一", role: "key", startPage: 1, endPage: 1, startSlide: null, endSlide: null, summary: "说明", keyPoints: ["要点"], examples: [] }],
       learningOutcomes: [], exercises: [], hasEnglishTerms: false,
     };
   }
@@ -26,12 +26,12 @@ function payloadFor(system: string) {
     };
   }
   if (system.includes("本章目录生成器")) {
-    return { entries: [{ sectionId: "s1", title: "小节一", role: "key", startPage: 1, endPage: 1, blocks: [block, { type: "example", text: "例子", sourceRefs: [] }], subsections: [] }] };
+    return { entries: [{ sectionId: "s1", title: "小节一", role: "key", startPage: 1, endPage: 1, startSlide: null, endSlide: null, blocks: [block, { type: "example", text: "例子", sourceRefs: [] }], subsections: [] }] };
   }
   if (system.includes("学习目标生成器")) {
     return {
-      chapterGoal: { clusterId: null, text: "给定情境能完成判断。", reason: "综合任务", sourceRefs: [] },
-      goals: [{ clusterId: "c1", text: "能解释小节一。", reason: "课件重点", sourceRefs: [] }],
+      chapterGoal: { clusterId: null, text: "给定情境能完成判断。", reason: "综合任务", sourceRefs: [], uncertaintyReason: null },
+      goals: [{ clusterId: "c1", text: "能解释小节一。", reason: "课件重点", sourceRefs: [], uncertaintyReason: null }],
     };
   }
   if (system.includes("导入问题生成器")) {
@@ -53,7 +53,7 @@ describe("River v0.22 complete generation planning", () => {
   });
 
   it("keeps the legacy package schema readable for old notes", () => {
-    const legacyNode = { title: "主题", nodeType: "chapter", sourceRefs: [], blocks: [block], children: [] };
+    const legacyNode = { title: "主题", nodeType: "chapter", sectionId: null, sourceRefs: [], blocks: [block], children: [] };
     const parsed = fullLearningPackageSchema.parse({
       introduction: {
         mapSections: [{ title: "章节", role: "intro", summary: "说明" }],

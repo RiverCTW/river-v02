@@ -2,9 +2,9 @@ import { z } from "zod";
 
 export const sourceReferenceSchema = z.object({
   sourceId: z.string(),
-  pageNumber: z.number().int().positive().optional(),
-  slideNumber: z.number().int().positive().optional(),
-  quote: z.string().max(500).optional(),
+  pageNumber: z.number().int().positive().nullable(),
+  slideNumber: z.number().int().positive().nullable(),
+  quote: z.string().max(500).nullable(),
 });
 
 export const contentBlockSchema = z.object({
@@ -35,14 +35,14 @@ export type AIKnowledgeNode = {
   sourceRefs: z.infer<typeof sourceReferenceSchema>[];
   blocks: z.infer<typeof contentBlockSchema>[];
   children: AIKnowledgeNode[];
-  sectionId?: string;
+  sectionId?: string | null;
 };
 
 export const knowledgeNodeSchema: z.ZodType<AIKnowledgeNode> = z.lazy(() =>
   z.object({
     title: z.string().min(1).max(220),
     nodeType: z.enum(["chapter", "topic", "knowledge", "exercise", "extension"]),
-    sectionId: z.string().max(60).optional(),
+    sectionId: z.string().max(60).nullable(),
     sourceRefs: z.array(sourceReferenceSchema).max(12).default([]),
     // A single teaching node can legitimately need many fine-grained lines once
     // the five-level layout rules are applied, so these caps are intentionally
@@ -62,11 +62,31 @@ export const knowledgeTreeSchema = z.object({
 export const learningMapSectionSchema = z.object({
   title: z.string().min(1).max(220),
   role: z.enum(["intro", "key", "difficulty", "exercise", "extension"]),
+  startPage: z.number().int().positive().nullable(),
+  endPage: z.number().int().positive().nullable(),
+  startSlide: z.number().int().positive().nullable(),
+  endSlide: z.number().int().positive().nullable(),
+  summary: z.string().min(1).max(1200),
+});
+
+// Legacy package envelope used only by old tests/notes. It keeps optional
+// page fields so historical payloads without null keys still validate.
+export const legacyLearningMapSectionSchema = z.object({
+  title: z.string().min(1).max(220),
+  role: z.enum(["intro", "key", "difficulty", "exercise", "extension"]),
   startPage: z.number().int().positive().optional(),
   endPage: z.number().int().positive().optional(),
   startSlide: z.number().int().positive().optional(),
   endSlide: z.number().int().positive().optional(),
   summary: z.string().min(1).max(1200),
+});
+
+export const legacyLearningIntroductionSchema = z.object({
+  mapSections: z.array(legacyLearningMapSectionSchema).min(1).max(60),
+  goals: z.array(z.string().min(1).max(400)).min(1).max(60),
+  goalQuestions: z.array(z.string().min(1).max(400)).min(1).max(60),
+  positioning: z.string().min(1).max(2000),
+  prerequisiteNotes: z.array(z.string().min(1).max(500)).max(20).default([]),
 });
 
 export const learningIntroductionSchema = z.object({
@@ -83,10 +103,10 @@ export const chapterSectionSchema = z.object({
   id: z.string().min(1).max(60),
   title: z.string().min(1).max(220),
   role: z.enum(["intro", "key", "difficulty", "exercise", "extension"]),
-  startPage: z.number().int().positive().optional(),
-  endPage: z.number().int().positive().optional(),
-  startSlide: z.number().int().positive().optional(),
-  endSlide: z.number().int().positive().optional(),
+  startPage: z.number().int().positive().nullable(),
+  endPage: z.number().int().positive().nullable(),
+  startSlide: z.number().int().positive().nullable(),
+  endSlide: z.number().int().positive().nullable(),
   summary: z.string().min(1).max(1200),
   keyPoints: z.array(z.string().min(1).max(300)).max(12).default([]),
   examples: z.array(z.string().min(1).max(300)).max(8).default([]),
@@ -121,10 +141,10 @@ export const directoryEntrySchema = z.object({
   sectionId: z.string().min(1).max(60),
   title: z.string().min(1).max(220),
   role: z.enum(["intro", "key", "difficulty", "exercise", "extension"]),
-  startPage: z.number().int().positive().optional(),
-  endPage: z.number().int().positive().optional(),
-  startSlide: z.number().int().positive().optional(),
-  endSlide: z.number().int().positive().optional(),
+  startPage: z.number().int().positive().nullable(),
+  endPage: z.number().int().positive().nullable(),
+  startSlide: z.number().int().positive().nullable(),
+  endSlide: z.number().int().positive().nullable(),
   blocks: z.array(contentBlockSchema).max(12).default([]),
   subsections: z.array(z.object({
     title: z.string().min(1).max(220),
@@ -141,7 +161,7 @@ export const goalItemSchema = z.object({
   text: z.string().min(1).max(500),
   reason: z.string().min(1).max(600),
   sourceRefs: z.array(sourceReferenceSchema).max(8).default([]),
-  uncertaintyReason: z.string().max(300).optional(),
+  uncertaintyReason: z.string().max(300).nullable(),
 });
 
 export const goalsSchema = z.object({
@@ -187,7 +207,7 @@ export const learningMapDocumentSchema = z.object({
 // Legacy envelope kept for older clients/tests. New generations use
 // generateCompleteLearningPackage which returns the staged payload instead.
 export const fullLearningPackageSchema = z.object({
-  introduction: learningIntroductionSchema,
+  introduction: legacyLearningIntroductionSchema,
   tree: knowledgeTreeSchema,
   requirements: learningMapDocumentSchema,
   questions: learningMapDocumentSchema,
@@ -201,11 +221,11 @@ export const chatResponseSchema = z.object({
 export const learningProfileSchema = z.object({
   intent: z.enum(["overview", "rough", "detailed", "mastery"]),
   level: z.enum(["zero", "related", "some", "professional"]),
-  customLevel: z.string().max(500).optional(),
-  customPurpose: z.string().max(500).optional(),
+  customLevel: z.string().max(500).nullable(),
+  customPurpose: z.string().max(500).nullable(),
   purpose: z.enum(["curiosity", "systematic", "homework", "presentation", "exam", "custom"]),
-  customization: z.string().max(4000).optional(),
-  goalStyle: z.enum(["question", "statement"]).optional(),
+  customization: z.string().max(4000).nullable(),
+  goalStyle: z.enum(["question", "statement"]).nullable(),
 });
 
 export function flattenKnowledgeTree(tree: z.infer<typeof knowledgeTreeSchema>) {

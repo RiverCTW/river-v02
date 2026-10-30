@@ -117,6 +117,41 @@ app.post("/api/admin/users", requireAdmin, async (req, res) => {
   }
 });
 
+/**
+ * Admin-only maintenance: soft-delete every active note that lives directly in
+ * the root of a user's library (folderId null). Notes inside any folder are
+ * untouched, and data is soft-deleted so it can still be restored.
+ */
+app.post("/api/admin/delete-root-notes", requireAdmin, async (req, res) => {
+  const persistence = await persistencePromise;
+  const username = String(req.body?.username || "").trim();
+  if (!username) return sendError(res, new Error("请提供 username。"), 400);
+  const users = await persistence.listUsers();
+  const user = users.find((item) => item.username === username);
+  if (!user) return sendError(res, new Error(`用户 ${username} 不存在。`), 404);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const workspace = await persistence.getWorkspace(user.id);
+    const payload = workspace.payload as any;
+    if (!payload) return sendError(res, new Error("该用户工作区为空。"), 404);
+    const rootNotes = (payload.notes || []).filter((note: any) => !note.deletedAt && !note.folderId);
+    if (!rootNotes.length) return res.json({ deleted: 0, noteIds: [], revision: workspace.revision });
+    const ids = new Set(rootNotes.map((note: any) => note.id));
+    const now = new Date().toISOString();
+    const nextPayload = {
+      ...payload,
+      notes: (payload.notes || []).map((note: any) => ids.has(note.id) ? { ...note, deletedAt: now } : note),
+    };
+    try {
+      const saved = await persistence.putWorkspace(user.id, workspace.revision, nextPayload);
+      return res.json({ deleted: rootNotes.length, noteIds: [...ids], revision: saved.revision });
+    } catch (error) {
+      const typed = error as { status?: number; code?: string };
+      if (typed.status !== 409 && typed.code !== "workspace_revision_conflict") throw error;
+    }
+  }
+  return sendError(res, new Error("工作区版本冲突，未完成删除。"), 409);
+});
+
 app.get("/api/workspace", requireUser, async (req, res) => {
   const persistence = await persistencePromise;
   const user = (req as express.Request & { riverUser: AuthUser }).riverUser;
