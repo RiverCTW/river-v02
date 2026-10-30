@@ -172,6 +172,7 @@ app.post("/api/admin/purge-root-notes", requireAdmin, async (req, res) => {
 app.post("/api/admin/delete-root-notes", requireAdmin, async (req, res) => {
   const persistence = await persistencePromise;
   const username = String(req.body?.username || "").trim();
+  const permanent = Boolean(req.body?.permanent);
   if (!username) return sendError(res, new Error("请提供 username。"), 400);
   const users = await persistence.listUsers();
   const user = users.find((item) => item.username === username);
@@ -180,17 +181,42 @@ app.post("/api/admin/delete-root-notes", requireAdmin, async (req, res) => {
     const workspace = await persistence.getWorkspace(user.id);
     const payload = workspace.payload as any;
     if (!payload) return sendError(res, new Error("该用户工作区为空。"), 404);
-    const rootNotes = (payload.notes || []).filter((note: any) => !note.deletedAt && !note.folderId);
-    if (!rootNotes.length) return res.json({ deleted: 0, noteIds: [], revision: workspace.revision });
+    const rootNotes = (payload.notes || []).filter((note: any) =>
+      !note.folderId && (permanent || !note.deletedAt));
+    if (!rootNotes.length) {
+      return res.json({ deleted: 0, noteIds: [], deletedNoteIds: payload.deletedNoteIds || [], revision: workspace.revision });
+    }
     const ids = new Set(rootNotes.map((note: any) => note.id));
     const now = new Date().toISOString();
-    const nextPayload = {
-      ...payload,
-      notes: (payload.notes || []).map((note: any) => ids.has(note.id) ? { ...note, deletedAt: now } : note),
-    };
+    const nextPayload = permanent
+      ? (() => {
+          const keep = (item: any) => !ids.has(item?.noteId) && !ids.has(item?.id);
+          return {
+            ...payload,
+            notes: (payload.notes || []).filter((note: any) => !ids.has(note.id)),
+            sources: (payload.sources || []).filter(keep),
+            profiles: (payload.profiles || []).filter(keep),
+            introductions: (payload.introductions || []).filter(keep),
+            nodes: (payload.nodes || []).filter(keep),
+            blocks: (payload.blocks || []).filter(keep),
+            learningMaps: (payload.learningMaps || []).filter(keep),
+            chatMessages: (payload.chatMessages || []).filter(keep),
+            deletedNoteIds: [...new Set([...(payload.deletedNoteIds || []), ...ids])],
+          };
+        })()
+      : {
+          ...payload,
+          notes: (payload.notes || []).map((note: any) => ids.has(note.id) ? { ...note, deletedAt: now } : note),
+        };
     try {
       const saved = await persistence.putWorkspace(user.id, workspace.revision, nextPayload);
-      return res.json({ deleted: rootNotes.length, noteIds: [...ids], revision: saved.revision });
+      return res.json({
+        deleted: rootNotes.length,
+        permanent,
+        noteIds: [...ids],
+        deletedNoteIds: nextPayload.deletedNoteIds || payload.deletedNoteIds || [],
+        revision: saved.revision,
+      });
     } catch (error) {
       const typed = error as { status?: number; code?: string };
       if (typed.status !== 409 && typed.code !== "workspace_revision_conflict") throw error;
