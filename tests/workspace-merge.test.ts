@@ -61,3 +61,50 @@ describe("River v0.21 workspace conflict merge", () => {
     expect((await db.notes.toArray()).map((note) => note.id).sort()).toEqual(["cloud-existing", "local-ch02"]);
   });
 });
+
+describe("locked cloud inputs during new-device hydration", () => {
+  const remoteLocked = {
+    format: "river-backup", version: 2,
+    folders: [], notes: [{ id: "locked", title: "locked note", uiStyle: "effie", generationState: "completed", sourcesLockedAt: "2026-10-27T02:00:00.000Z", createdAt: "2026-10-27T01:00:00.000Z", updatedAt: "2026-10-27T02:00:00.000Z" }],
+    sources: [{ id: "remote-src", noteId: "locked", fileName: "cloud.pdf", order: 0, parseStatus: "parsed", textCharCount: 10, updatedAt: "2026-10-27T02:00:00.000Z" }],
+    profiles: [{ noteId: "locked", intent: "mastery", level: "zero", purpose: "exam", createdAt: "2026-10-27T01:00:00.000Z", updatedAt: "2026-10-27T02:00:00.000Z" }],
+    introductions: [], nodes: [], blocks: [], settings: [], learningMaps: [], chatMessages: [],
+  };
+
+  it("keeps remote sources and profile for a locked note even when local cache is newer", () => {
+    const local = {
+      format: "river-backup", version: 2,
+      notes: [{ id: "locked", updatedAt: "2026-10-27T03:00:00.000Z" }],
+      sources: [{ id: "local-src", noteId: "locked", fileName: "stale.pdf", order: 0, updatedAt: "2026-10-27T03:00:00.000Z" }],
+      profiles: [{ noteId: "locked", intent: "overview", level: "professional", purpose: "curiosity", updatedAt: "2026-10-27T03:00:00.000Z" }],
+      introductions: [], nodes: [], blocks: [], settings: [], learningMaps: [], chatMessages: [],
+    };
+    const merged = mergeWorkspacePayloads(local, remoteLocked);
+    expect(merged.sources).toEqual(remoteLocked.sources);
+    expect(merged.profiles).toEqual(remoteLocked.profiles);
+  });
+
+  it("falls back to the cloud payload when the server rejects locked input changes with 423", async () => {
+    vi.stubGlobal("setInterval", vi.fn(() => 0));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined, removeItem: () => undefined, clear: () => undefined, key: () => null, length: 0 });
+    await db.open();
+    await db.notes.clear();
+    await db.sources.clear();
+    await db.profiles.clear();
+    await db.notes.put({ id: "locked", folderId: null, title: "locked note", uiStyle: "effie", generationState: "completed", sourcesLockedAt: "2026-10-27T02:00:00.000Z", createdAt: "2026-10-27T01:00:00.000Z", updatedAt: "2026-10-27T03:00:00.000Z" } as any);
+    await db.sources.put({ id: "local-src", noteId: "locked", fileName: "stale.pdf", mimeType: "application/pdf", fileSize: 1, kind: "pdf", pages: [], slides: [], parseStatus: "parsed", textCharCount: 1, createdAt: "2026-10-27T03:00:00.000Z" } as any);
+    await db.profiles.put({ noteId: "locked", intent: "overview", level: "professional", purpose: "curiosity", createdAt: "2026-10-27T03:00:00.000Z", updatedAt: "2026-10-27T03:00:00.000Z" } as any);
+    let putCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        putCount += 1;
+        return new Response(JSON.stringify({ error: { message: "locked", code: "learning_inputs_locked" } }), { status: 423, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ payload: remoteLocked, revision: 1 }), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+    const result = await loadWorkspaceForUser("locked-fallback-user");
+    expect(putCount).toBeGreaterThan(0);
+    expect(result.payload).toEqual(remoteLocked);
+    expect(result.revision).toBe(1);
+  });
+});

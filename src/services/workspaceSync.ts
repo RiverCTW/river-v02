@@ -49,13 +49,27 @@ export function mergeWorkspacePayloads(local: any, remote: any) {
   const base = remote || local || {};
   const byId = (item: any) => String(item?.id || "");
   const byNote = (item: any) => String(item?.noteId || item?.key || "");
+  let sources = mergeRecords(local?.sources, remote?.sources, byId);
+  let profiles = mergeRecords(local?.profiles, remote?.profiles, byNote);
+  // Once a note has finished generation its sources and learning profile are
+  // immutable on the server. A new device may still hold an older local cache,
+  // so never let local merge overwrite those locked inputs.
+  const lockedNoteIds = new Set<string>((remote?.notes || [])
+    .filter((note: any) => note.generationState === "completed" || note.sourcesLockedAt)
+    .map((note: any) => note.id));
+  if (lockedNoteIds.size) {
+    const remoteSources = (remote?.sources || []).filter((source: any) => lockedNoteIds.has(source.noteId));
+    const remoteProfiles = (remote?.profiles || []).filter((profile: any) => lockedNoteIds.has(profile.noteId));
+    sources = [...sources.filter((source: any) => !lockedNoteIds.has(source.noteId)), ...remoteSources];
+    profiles = [...profiles.filter((profile: any) => !lockedNoteIds.has(profile.noteId)), ...remoteProfiles];
+  }
   return {
     ...local,
     ...base,
     folders: mergeRecords(local?.folders, remote?.folders, byId),
     notes: mergeRecords(local?.notes, remote?.notes, byId),
-    sources: mergeRecords(local?.sources, remote?.sources, byId),
-    profiles: mergeRecords(local?.profiles, remote?.profiles, byNote),
+    sources,
+    profiles,
     introductions: mergeRecords(local?.introductions, remote?.introductions, byNote),
     nodes: mergeRecords(local?.nodes, remote?.nodes, byId),
     blocks: mergeRecords(local?.blocks, remote?.blocks, byId),
@@ -147,15 +161,33 @@ export async function loadWorkspaceForUser(userId: string): Promise<{ payload: a
         mergedRevision = saved.revision;
       } catch (error) {
         const typed = error as Error & { status?: number; code?: string };
-        if (typed.status !== 409 && typed.code !== "workspace_revision_conflict") throw error;
-        const latest = await request<{ payload: any | null; revision: number }>("/api/workspace");
-        const latestPayload = latest.payload || remotePayload;
-        mergedPayload = mergeWorkspacePayloads(localPayload, latestPayload);
-        const saved = await request<{ revision: number }>("/api/workspace", {
-          method: "PUT",
-          body: JSON.stringify({ expectedRevision: latest.revision, payload: mergedPayload }),
-        });
-        mergedRevision = saved.revision;
+        if (typed.status === 423 || typed.code === "learning_inputs_locked") {
+          // A stale local cache tried to change locked inputs. Fall back to the
+          // authoritative cloud payload instead of failing workspace startup.
+          mergedPayload = remotePayload;
+          mergedRevision = remote.revision;
+        } else if (typed.status === 409 || typed.code === "workspace_revision_conflict") {
+          const latest = await request<{ payload: any | null; revision: number }>("/api/workspace");
+          const latestPayload = latest.payload || remotePayload;
+          mergedPayload = mergeWorkspacePayloads(localPayload, latestPayload);
+          try {
+            const saved = await request<{ revision: number }>("/api/workspace", {
+              method: "PUT",
+              body: JSON.stringify({ expectedRevision: latest.revision, payload: mergedPayload }),
+            });
+            mergedRevision = saved.revision;
+          } catch (retryError) {
+            const retryTyped = retryError as Error & { status?: number; code?: string };
+            if (retryTyped.status === 423 || retryTyped.code === "learning_inputs_locked") {
+              mergedPayload = latestPayload;
+              mergedRevision = latest.revision;
+            } else {
+              throw retryError;
+            }
+          }
+        } else {
+          throw error;
+        }
       }
     }
     hydrating = true;
