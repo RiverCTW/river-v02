@@ -300,6 +300,9 @@ export class PostgresPersistence {
       .filter((note: any) => note.generationState === "completed" || note.sourcesLockedAt)
       .map((note: any) => note.id));
     for (const noteId of lockedNotes) {
+      // Deleting a note entirely is allowed; only edits to a note that still
+      // exists must keep its locked sources/profile immutable.
+      if (!(next.notes || []).some((note: any) => note.id === noteId)) continue;
       const sourceSignature = (payload: any) => JSON.stringify((payload.sources || [])
         .filter((source: any) => source.noteId === noteId)
         .sort((a: any, b: any) => Number(a.order || 0) - Number(b.order || 0))
