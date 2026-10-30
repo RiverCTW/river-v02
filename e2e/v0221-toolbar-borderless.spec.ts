@@ -43,7 +43,8 @@ test("v0.22.1 library is borderless and removes the unused outer frame", async (
 });
 
 test("Cmd+B button sits between H3 and ** and applies selection and single-line typing bold", async ({ page }) => {
-  await createTestNote(page, `BOLD-${Date.now().toString(36)}`);
+  const title = `BOLD-${Date.now().toString(36)}`;
+  await createTestNote(page, title);
   await page.keyboard.press("Enter");
   await page.keyboard.type("普通文字");
   await page.keyboard.press("Home");
@@ -86,4 +87,12 @@ test("Cmd+B button sits between H3 and ** and applies selection and single-line 
   await page.keyboard.type("恢复普通");
   await expect(finalParagraph.locator("strong").filter({ hasText: "临时加粗" })).toHaveCount(1);
   await expect(finalParagraph).toContainText("恢复普通");
+
+  await page.waitForTimeout(500);
+  await page.goto("/");
+  const card = page.locator("article.tmi-note").filter({ hasText: title });
+  await expect(card).toHaveCount(1);
+  await card.dblclick();
+  await editor(page).waitFor();
+  await expect(editor(page).locator("strong").filter({ hasText: "临时加粗" })).toHaveCount(1);
 });
