@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { db } from "../src/db/database";
-import { loadWorkspaceForUser, mergeWorkspacePayloads } from "../src/services/workspaceSync";
+import { loadWorkspaceForUser, mergeWorkspacePayloads, pullWorkspaceChanges } from "../src/services/workspaceSync";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -87,6 +87,7 @@ describe("locked cloud inputs during new-device hydration", () => {
   it("falls back to the cloud payload when the server rejects locked input changes with 423", async () => {
     vi.stubGlobal("setInterval", vi.fn(() => 0));
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined, removeItem: () => undefined, clear: () => undefined, key: () => null, length: 0 });
+    vi.stubGlobal("navigator", { onLine: true });
     await db.open();
     await db.notes.clear();
     await db.sources.clear();
@@ -141,5 +142,34 @@ describe("deletedNoteIds tombstones", () => {
     expect(merged.learningMaps).toHaveLength(0);
     expect(merged.chatMessages).toHaveLength(0);
     expect(merged.deletedNoteIds).toContain("gone");
+  });
+
+  it("pulls remote tombstones into an already-open workspace", async () => {
+    vi.stubGlobal("setInterval", vi.fn(() => 0));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined, removeItem: () => undefined, clear: () => undefined, key: () => null, length: 0 });
+    vi.stubGlobal("navigator", { onLine: true });
+    await db.open();
+    await db.notes.clear();
+
+    const basePayload = {
+      format: "river-backup", version: 2, folders: [],
+      notes: [{ id: "keep", folderId: null, title: "keep", uiStyle: "effie", editorDoc: { type: "doc", content: [] } }],
+      sources: [], profiles: [], introductions: [], nodes: [], blocks: [], settings: [], learningMaps: [], chatMessages: [], deletedNoteIds: [],
+    };
+    let revision = 1;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") return new Response(JSON.stringify({ revision: revision++ }), { status: 200, headers: { "content-type": "application/json" } });
+      const payload = revision === 1
+        ? basePayload
+        : { ...basePayload, notes: basePayload.notes, deletedNoteIds: ["stale"] };
+      return new Response(JSON.stringify({ payload, revision }), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+
+    await loadWorkspaceForUser("live-pull-user");
+    await db.notes.put({ id: "stale", folderId: null, title: "stale", uiStyle: "effie", editorDoc: { type: "doc", content: [] } } as any);
+    revision = 3;
+    await pullWorkspaceChanges();
+
+    expect((await db.notes.toArray()).map((note) => note.id)).toEqual(["keep"]);
   });
 });

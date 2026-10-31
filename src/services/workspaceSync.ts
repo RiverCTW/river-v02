@@ -13,6 +13,7 @@ let syncPromise: Promise<void> = Promise.resolve();
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let lastSignature = "";
 let syncing = false;
+let pulling = false;
 
 const listeners = new Set<(state: WorkspaceSyncState, detail?: string) => void>();
 
@@ -116,8 +117,8 @@ function workspaceHasContent(payload: any): boolean {
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(() => {
-    if (!hydrating && activeUserId && activePayloadExists) scheduleWorkspaceSync();
-  }, 1200);
+    if (!hydrating && activeUserId && activePayloadExists) void pullWorkspaceChanges();
+  }, 3000);
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -134,6 +135,29 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     throw error;
   }
   return json as T;
+}
+
+export async function pullWorkspaceChanges(): Promise<void> {
+  if (!activeUserId || !activePayloadExists || hydrating || syncing || pulling) return;
+  if (typeof navigator !== "undefined" && !navigator.onLine) return;
+  pulling = true;
+  try {
+    const remote = await request<{ payload: any | null; revision: number }>("/api/workspace");
+    if (remote.revision <= activeRevision) return;
+    const remotePayload = remote.payload
+      ? (remote.payload.format ? remote.payload : { format: "river-backup", version: 2, ...remote.payload })
+      : await createCloudWorkspacePayload();
+    const localPayload = await createCloudWorkspacePayload();
+    const merged = mergeWorkspacePayloads(localPayload, remotePayload);
+    await mergeWorkspaceIntoLocal(merged);
+    activeRevision = remote.revision;
+    lastSignature = payloadSignature(remotePayload);
+    localStorage.setItem(revisionKey(activeUserId), String(activeRevision));
+    notify("saved");
+    if (payloadSignature(merged) !== payloadSignature(remotePayload)) scheduleWorkspaceSync();
+  } finally {
+    pulling = false;
+  }
 }
 
 async function createCloudWorkspacePayload() {
