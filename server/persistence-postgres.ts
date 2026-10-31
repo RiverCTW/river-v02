@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import pg from "pg";
 import type { AuthUser, GenerationJobInput, GenerationJobRecord, UserRole } from "./persistence";
+import { applyDeletedNoteTombstones } from "./tombstones";
 
 interface UserRow {
   id: string;
@@ -277,6 +278,7 @@ export class PostgresPersistence {
         error.code = "workspace_revision_conflict";
         throw error;
       }
+      payload = applyDeletedNoteTombstones(current.rows[0]?.payload as any, payload as any);
       this.assertLockedRules(current.rows[0]?.payload as any, payload as any);
       const nextRevision = revision + 1;
       const result = await client.query<{ updated_at: Date | string }>(`
@@ -292,27 +294,6 @@ export class PostgresPersistence {
     } finally {
       client.release();
     }
-  }
-
-  private applyTombstones(previous: any, next: any) {
-    const tombstones = new Set<string>(
-      [...(previous?.deletedNoteIds || []), ...(next?.deletedNoteIds || [])].map(String),
-    );
-    if (!tombstones.size) return next;
-    const keep = (item: any) =>
-      !tombstones.has(String(item?.noteId || "")) && !tombstones.has(String(item?.id || ""));
-    return {
-      ...next,
-      notes: (next?.notes || []).filter((note: any) => !tombstones.has(String(note?.id || ""))),
-      sources: (next?.sources || []).filter(keep),
-      profiles: (next?.profiles || []).filter(keep),
-      introductions: (next?.introductions || []).filter(keep),
-      nodes: (next?.nodes || []).filter(keep),
-      blocks: (next?.blocks || []).filter(keep),
-      learningMaps: (next?.learningMaps || []).filter(keep),
-      chatMessages: (next?.chatMessages || []).filter(keep),
-      deletedNoteIds: [...tombstones],
-    };
   }
 
   private assertLockedRules(previous: any, next: any) {

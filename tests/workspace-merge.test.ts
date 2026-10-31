@@ -157,8 +157,12 @@ describe("deletedNoteIds tombstones", () => {
       sources: [], profiles: [], introductions: [], nodes: [], blocks: [], settings: [], learningMaps: [], chatMessages: [], deletedNoteIds: [],
     };
     let revision = 1;
+    let putCount = 0;
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
-      if (init?.method === "PUT") return new Response(JSON.stringify({ revision: revision++ }), { status: 200, headers: { "content-type": "application/json" } });
+      if (init?.method === "PUT") {
+        putCount += 1;
+        return new Response(JSON.stringify({ revision: revision++ }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       const payload = revision === 1
         ? basePayload
         : { ...basePayload, notes: basePayload.notes, deletedNoteIds: ["stale"] };
@@ -167,9 +171,11 @@ describe("deletedNoteIds tombstones", () => {
 
     await loadWorkspaceForUser("live-pull-user");
     await db.notes.put({ id: "stale", folderId: null, title: "stale", uiStyle: "effie", editorDoc: { type: "doc", content: [] } } as any);
+    const putsBeforePull = putCount;
     revision = 3;
     await pullWorkspaceChanges();
 
     expect((await db.notes.toArray()).map((note) => note.id)).toEqual(["keep"]);
+    expect(putCount).toBe(putsBeforePull);
   });
 });

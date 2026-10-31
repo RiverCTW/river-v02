@@ -2,6 +2,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { applyDeletedNoteTombstones } from "./tombstones";
 
 export type UserRole = "admin" | "user";
 
@@ -337,7 +338,7 @@ export class RiverPersistence {
       error.code = "workspace_revision_conflict";
       throw error;
     }
-    payload = this.applyTombstones(current.payload as any, payload as any);
+    payload = applyDeletedNoteTombstones(current.payload as any, payload as any);
     this.assertLockedRules(current.payload as any, payload as any);
     const revision = current.revision + 1;
     const updatedAt = nowIso();
@@ -346,27 +347,6 @@ export class RiverPersistence {
       on conflict(user_id) do update set revision=excluded.revision, payload=excluded.payload, updated_at=excluded.updated_at
     `).run(userId, revision, JSON.stringify(payload), updatedAt);
     return { revision, updatedAt };
-  }
-
-  private applyTombstones(previous: any, next: any) {
-    const tombstones = new Set<string>(
-      [...(previous?.deletedNoteIds || []), ...(next?.deletedNoteIds || [])].map(String),
-    );
-    if (!tombstones.size) return next;
-    const keep = (item: any) =>
-      !tombstones.has(String(item?.noteId || "")) && !tombstones.has(String(item?.id || ""));
-    return {
-      ...next,
-      notes: (next?.notes || []).filter((note: any) => !tombstones.has(String(note?.id || ""))),
-      sources: (next?.sources || []).filter(keep),
-      profiles: (next?.profiles || []).filter(keep),
-      introductions: (next?.introductions || []).filter(keep),
-      nodes: (next?.nodes || []).filter(keep),
-      blocks: (next?.blocks || []).filter(keep),
-      learningMaps: (next?.learningMaps || []).filter(keep),
-      chatMessages: (next?.chatMessages || []).filter(keep),
-      deletedNoteIds: [...tombstones],
-    };
   }
 
   private assertLockedRules(previous: any, next: any) {

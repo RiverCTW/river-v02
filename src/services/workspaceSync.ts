@@ -151,10 +151,9 @@ export async function pullWorkspaceChanges(): Promise<void> {
     const merged = mergeWorkspacePayloads(localPayload, remotePayload);
     await mergeWorkspaceIntoLocal(merged);
     activeRevision = remote.revision;
-    lastSignature = payloadSignature(remotePayload);
+    lastSignature = payloadSignature(merged);
     localStorage.setItem(revisionKey(activeUserId), String(activeRevision));
     notify("saved");
-    if (payloadSignature(merged) !== payloadSignature(remotePayload)) scheduleWorkspaceSync();
   } finally {
     pulling = false;
   }
