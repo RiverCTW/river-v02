@@ -131,4 +131,49 @@ describe("River v0.2 authentication and workspace isolation", () => {
     });
     expect(changed.status).toBe(423);
   });
+
+  it("permanently purges root notes and notes whose folder no longer exists", async () => {
+    const base = await startApi();
+    const login = await fetch(`${base}/api/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin-test", password: "admin-secret" }),
+    });
+    const token = await tokenFrom(login);
+    const payload = {
+      format: "river-backup",
+      version: 2,
+      folders: [{ id: "kept-folder", name: "保留文件夹", parentId: null, deletedAt: null }],
+      notes: [
+        { id: "root-note", folderId: null, title: "根目录笔记" },
+        { id: "orphan-note", folderId: "missing-folder", title: "失效文件夹笔记" },
+        { id: "inside-note", folderId: "kept-folder", title: "文件夹内笔记" },
+      ],
+      sources: [
+        { id: "root-source", noteId: "root-note" },
+        { id: "orphan-source", noteId: "orphan-note" },
+        { id: "inside-source", noteId: "inside-note" },
+      ],
+    };
+    const saved = await fetch(`${base}/api/workspace`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ expectedRevision: 0, payload }),
+    });
+    expect(saved.status).toBe(200);
+
+    const purge = await fetch(`${base}/api/admin/purge-root-notes`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ username: "admin-test" }),
+    });
+    expect(purge.status).toBe(200);
+    expect(await purge.json()).toMatchObject({ deleted: 2 });
+
+    const workspace = await fetch(`${base}/api/workspace`, { headers: { authorization: `Bearer ${token}` } });
+    const result = await workspace.json();
+    expect(result.payload.notes.map((note: any) => note.id)).toEqual(["inside-note"]);
+    expect(result.payload.sources.map((source: any) => source.id)).toEqual(["inside-source"]);
+    expect(result.payload.deletedNoteIds).toEqual(expect.arrayContaining(["root-note", "orphan-note"]));
+  });
 });

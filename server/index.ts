@@ -134,7 +134,11 @@ app.post("/api/admin/purge-root-notes", requireAdmin, async (req, res) => {
     const workspace = await persistence.getWorkspace(user.id);
     const payload = workspace.payload as any;
     if (!payload) return sendError(res, new Error("该用户工作区为空。"), 404);
-    const rootNotes = (payload.notes || []).filter((note: any) => !note.folderId);
+    const activeFolderIds = new Set((payload.folders || [])
+      .filter((folder: any) => !folder.deletedAt)
+      .map((folder: any) => String(folder.id)));
+    const rootNotes = (payload.notes || [])
+      .filter((note: any) => !note.folderId || !activeFolderIds.has(String(note.folderId)));
     if (!rootNotes.length) {
       return res.json({ deleted: 0, noteIds: [], deletedNoteIds: payload.deletedNoteIds || [], revision: workspace.revision });
     }
@@ -181,8 +185,12 @@ app.post("/api/admin/delete-root-notes", requireAdmin, async (req, res) => {
     const workspace = await persistence.getWorkspace(user.id);
     const payload = workspace.payload as any;
     if (!payload) return sendError(res, new Error("该用户工作区为空。"), 404);
+    const activeFolderIds = new Set((payload.folders || [])
+      .filter((folder: any) => !folder.deletedAt)
+      .map((folder: any) => String(folder.id)));
     const rootNotes = (payload.notes || []).filter((note: any) =>
-      !note.folderId && (permanent || !note.deletedAt));
+      (!note.folderId || !activeFolderIds.has(String(note.folderId))) &&
+      (permanent || !note.deletedAt));
     if (!rootNotes.length) {
       return res.json({ deleted: 0, noteIds: [], deletedNoteIds: payload.deletedNoteIds || [], revision: workspace.revision });
     }
