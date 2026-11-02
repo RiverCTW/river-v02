@@ -237,6 +237,22 @@ test("v25 image insertion, cancel and persistence use the real image node", asyn
   const card = page.locator("article.tmi-note").filter({ hasText: "图片持久化" }).first();
   await card.getByRole("button", { name: "打开" }).click();
   await expect(page.locator(".river-editor-layout .river-image-node")).toHaveCount(1);
+
+  await newLine(page, "图片切换");
+  await openMenu(page);
+  const switching = page.waitForEvent("filechooser");
+  await menu(page).getByTestId("river-slash-image").click();
+  const switchedChooser = await switching;
+  await page.evaluate(async () => {
+    const store = await import("/src/store/useAppStore.ts");
+    const state = store.useAppStore.getState();
+    const current = state.bundle?.note.id;
+    const other = state.notes.find((note) => note.id !== current);
+    if (other) await state.openNote(other.id);
+  });
+  await switchedChooser.setFiles({ name: "switched.png", mimeType: "image/png", buffer });
+  await expect(page.locator(".river-image-node")).toHaveCount(0);
+  await expect(page.locator(".river-toast")).toContainText("当前笔记已切换");
 });
 
 test("v25 link insertion supports caret and selection and survives reopen", async ({ page }) => {
