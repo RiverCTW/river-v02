@@ -227,6 +227,10 @@ test("v25 image insertion, cancel and persistence use the real image node", asyn
   const image = page.locator(".river-image-node").first();
   await expect(image).toBeVisible();
   await expect(image.locator("img")).toHaveAttribute("src", /^data:image\//);
+  await page.keyboard.press("Meta+z");
+  await expect(page.locator(".river-image-node")).toHaveCount(0);
+  await page.keyboard.press("Meta+Shift+z");
+  await expect(page.locator(".river-image-node")).toHaveCount(1);
   await page.waitForTimeout(800);
   await page.getByRole("button", { name: "返回笔记库" }).click();
   await page.reload();
@@ -243,6 +247,10 @@ test("v25 link insertion supports caret and selection and survives reopen", asyn
   const anchor = page.locator(".river-editor-layout a[href='https://example.com']").first();
   await expect(anchor).toContainText("https://example.com");
   await expect(anchor).toHaveAttribute("target", "_blank");
+  await page.keyboard.press("Meta+z");
+  await expect(page.locator(".river-editor-layout a[href='https://example.com']")).toHaveCount(0);
+  await page.keyboard.press("Meta+Shift+z");
+  await expect(page.locator(".river-editor-layout a[href='https://example.com']")).toHaveCount(1);
 
   await newLine(page, "链接选区");
   await openMenu(page);
