@@ -9,6 +9,7 @@ import { createOutlineExtensions, handlePlainTextPaste, SEARCH_HIGHLIGHT_META } 
 import { registerEditorFlush, registerEditorTitleRenamer } from "./editorFlush";
 import { cacheEditorSnapshot } from "./snapshotCache";
 import { Icon } from "../components/IconSprite";
+import { RiverSlashMenuIcon } from "./RiverSlashMenuV25";
 import { useAppStore } from "../store/useAppStore";
 import {
   endSubtreeDrag,
@@ -62,143 +63,45 @@ interface SlashSection {
   items: SlashMenuItem[];
 }
 
-const AI_SLASH_ITEMS: SlashMenuItem[] = [
-  {
-    id: "effie-ai",
-    label: "Effie AI",
-    icon: "sparkles",
-    trailing: "chevron",
-    children: [
-      { id: "ai-improve", label: "优化改写", run: (editor) => notifyUnavailable(editor, "优化改写") },
-      { id: "ai-style", label: "调整风格", run: (editor) => notifyUnavailable(editor, "调整风格") },
-      { id: "ai-review", label: "AI点评", run: (editor) => notifyUnavailable(editor, "AI点评") },
-    ],
-  },
-  { id: "ask-ai", label: "问 AI", icon: "sparkles", trailing: "return", run: (editor) => notifyUnavailable(editor, "问 AI") },
-  {
-    id: "rewrite",
-    label: "优化改写",
-    icon: "wand",
-    trailing: "chevron",
-    children: [
-      { id: "rewrite-clear", label: "表达更清晰", run: (editor) => notifyUnavailable(editor, "表达更清晰") },
-      { id: "rewrite-short", label: "表达更简洁", run: (editor) => notifyUnavailable(editor, "表达更简洁") },
-    ],
-  },
-  {
-    id: "style",
-    label: "调整风格",
-    icon: "wand",
-    trailing: "chevron",
-    children: [
-      { id: "style-formal", label: "正式", run: (editor) => notifyUnavailable(editor, "正式风格") },
-      { id: "style-plain", label: "通俗", run: (editor) => notifyUnavailable(editor, "通俗风格") },
-    ],
-  },
-];
-
 const FORMAT_SLASH_ITEMS: SlashMenuItem[] = [
-  { id: "h1", label: "H1", icon: "H1", grid: true, run: (editor) => applyHeading(editor, 1) },
-  { id: "h2", label: "H2", icon: "H2", grid: true, run: (editor) => applyHeading(editor, 2) },
-  { id: "h3", label: "H3", icon: "H3", grid: true, run: (editor) => applyHeading(editor, 3) },
-  { id: "h4", label: "H4", icon: "H4", grid: true, run: (editor) => applyHeading(editor, 4) },
+  { id: "h1", label: "H1", icon: "h1", grid: true, run: (editor) => applyHeading(editor, 1) },
+  { id: "h2", label: "H2", icon: "h2", grid: true, run: (editor) => applyHeading(editor, 2) },
+  { id: "h3", label: "H3", icon: "h3", grid: true, run: (editor) => applyHeading(editor, 3) },
+  { id: "h4", label: "H4", icon: "h4", grid: true, run: (editor) => applyHeading(editor, 4) },
   { id: "bullet", label: "无序列表", icon: "bullet", grid: true, run: (editor) => applyListMarker(editor, "bulletList") },
   { id: "ordered", label: "有序列表", icon: "ordered", grid: true, run: (editor) => applyListMarker(editor, "orderedList") },
-  { id: "bold", label: "粗体", icon: "B", grid: true, run: (editor) => wrapInlineMarker(editor, "**") },
-  { id: "italic", label: "斜体", icon: "I", grid: true, run: (editor) => wrapInlineMarker(editor, "*") },
-  { id: "strike", label: "删除线", icon: "S", grid: true, run: (editor) => wrapInlineMarker(editor, "~~") },
-  { id: "marker", label: "标注", icon: "M", grid: true, run: (editor) => wrapInlineMarker(editor, "::") },
-  { id: "comment", label: "评论", icon: "pen", grid: true, run: (editor) => wrapInlineMarker(editor, "++") },
+  { id: "bold", label: "粗体", icon: "bold", grid: true, run: (editor) => wrapInlineMarker(editor, "**") },
+  { id: "italic", label: "斜体", icon: "italic", grid: true, run: (editor) => wrapInlineMarker(editor, "*") },
+  { id: "strike", label: "删除线", icon: "strike", grid: true, run: (editor) => wrapInlineMarker(editor, "~~") },
+  { id: "marker", label: "标注", icon: "marker", grid: true, run: (editor) => wrapInlineMarker(editor, "::") },
+  { id: "comment", label: "评论", icon: "comment", grid: true, run: (editor) => wrapInlineMarker(editor, "++") },
   { id: "code", label: "行内代码", icon: "code", grid: true, run: (editor) => wrapInlineMarker(editor, "`") },
-  { id: "quote", label: "引用", icon: "quote", grid: true, run: (editor) => applyBlockType(editor, "quote") },
-  { id: "comment-block", label: "评论块", icon: "comment", grid: true, run: (editor) => applyBlockType(editor, "comment") },
-  { id: "code-block", label: "代码块", icon: "codeblock", grid: true, run: (editor) => applyBlockType(editor, "code") },
-  { id: "align-left", label: "左对齐", icon: "align-left", grid: true, run: (editor) => applyAlignment(editor, "left") },
-  { id: "align-center", label: "居中", icon: "align-center", grid: true, run: (editor) => applyAlignment(editor, "center") },
+  { id: "quote", label: "引用块", icon: "quote", grid: true, run: (editor) => applyBlockType(editor, "quote") },
+  { id: "comment-block", label: "注释块", icon: "comment-block", grid: true, run: (editor) => applyBlockType(editor, "comment") },
+  { id: "code-block", label: "代码块", icon: "code-block", grid: true, run: (editor) => applyBlockType(editor, "code") },
   { id: "divider", label: "分隔线", icon: "divider", grid: true, run: (editor) => applyBlockType(editor, "divider") },
+  { id: "escape", label: "转义字符", icon: "escape", grid: true, run: (editor) => insertEscapeCharacter(editor) },
 ];
 
 const INSERT_SLASH_ITEMS: SlashMenuItem[] = [
   { id: "image", label: "插入图片...", icon: "image", trailing: "return", run: (editor) => notifyUnavailable(editor, "插入图片") },
   { id: "link", label: "插入链接...", icon: "link", trailing: "return", run: (editor) => insertLink(editor) },
   { id: "table", label: "插入表格...", icon: "table", trailing: "return", run: (editor) => notifyUnavailable(editor, "插入表格") },
-  { id: "datetime", label: "插入日期和时间", icon: "calendar", trailing: "return", run: (editor) => insertDateTime(editor) },
+  { id: "datetime", label: "插入日期和时间", icon: "datetime", trailing: "return", run: (editor) => insertDateTime(editor) },
 ];
 
 const SLASH_SECTIONS: SlashSection[] = [
-  { id: "ai", layout: "rows", items: AI_SLASH_ITEMS },
   { id: "format", layout: "grid", items: FORMAT_SLASH_ITEMS },
   { id: "insert", layout: "rows", items: INSERT_SLASH_ITEMS },
 ];
 
 const SLASH_NAV_ITEMS = SLASH_SECTIONS.flatMap((section) => section.items);
 
-function SlashMenuIcon({ name }: { name: string }) {
-  if (/^(H[1-6]|[BISM])$/.test(name)) {
-    return <span className={`river-slash-glyph ${name === "M" ? "is-marker" : ""}`} aria-hidden="true">{name}</span>;
-  }
-  const common = {
-    width: 20,
-    height: 20,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.8,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true,
-  };
-  if (name === "sparkles") {
-    return <svg {...common}><path d="m12 3 1.2 3.2L16.5 7.5l-3.3 1.3L12 12l-1.2-3.2-3.3-1.3 3.3-1.3L12 3Z"/><path d="m18.5 13 .7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z"/></svg>;
-  }
-  if (name === "wand") {
-    return <svg {...common}><path d="m4 20 10-10"/><path d="m12 4 1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z"/><path d="m19 13 .7 1.3L21 15l-1.3.7L19 17l-.7-1.3L17 15l1.3-.7L19 13Z"/></svg>;
-  }
-  if (name === "bullet") {
-    return <svg {...common}><circle cx="5" cy="7" r="1.4" fill="currentColor" stroke="none"/><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="5" cy="17" r="1.4" fill="currentColor" stroke="none"/><path d="M9 7h10M9 12h10M9 17h10"/></svg>;
-  }
-  if (name === "ordered") {
-    return <span className="river-slash-list-icon" aria-hidden="true"><i>1</i><i>2</i><i>3</i></span>;
-  }
-  if (name === "pen") {
-    return <svg {...common}><path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/><path d="m14 7 3 3"/></svg>;
-  }
-  if (name === "code") {
-    return <svg {...common}><path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 5l-4 14"/></svg>;
-  }
-  if (name === "quote") {
-    return <svg {...common}><path d="M5 7h5v5H7c0 2 .8 3.3 3 4M14 7h5v5h-3c0 2 .8 3.3 3 4"/></svg>;
-  }
-  if (name === "comment") {
-    return <svg {...common}><path d="M5 18 3 21v-5a8 8 0 1 1 3 4"/><path d="M8 11h8M8 14h5"/></svg>;
-  }
-  if (name === "codeblock") {
-    return <svg {...common}><path d="M8 8 4 12l4 4M16 8l4 4-4 4M13 5l-2 14"/></svg>;
-  }
-  if (name === "divider") {
-    return <svg {...common}><path d="M4 12h16M6 6h12M6 18h12"/></svg>;
-  }
-  if (name.startsWith("align-")) {
-    const lines = name === "align-center" ? [6, 4, 6, 4] : name === "align-right" ? [3, 6, 4, 6] : [4, 6, 4, 6];
-    return <svg {...common}>{lines.map((length, index) => <path key={index} d={`M${name === "align-right" ? 20 - length : name === "align-center" ? 12 - length / 2 : 4} ${5 + index * 4}h${length}`} />)}</svg>;
-  }
-  if (name === "plain") {
-    return <svg {...common}><path d="M6 5h11M12 5v10"/><path d="m5 19 4-4"/></svg>;
-  }
-  if (name === "image") {
-    return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m4 18 5-5 3 3 2-2 6 6"/></svg>;
-  }
-  if (name === "link") {
-    return <svg {...common}><path d="m9 15 6-6M7.5 17.5l-1 1a3.5 3.5 0 0 1-5-5l3-3a3.5 3.5 0 0 1 5 0M16.5 6.5l1-1a3.5 3.5 0 0 1 5 5l-3 3a3.5 3.5 0 0 1-5 0"/></svg>;
-  }
-  if (name === "table") {
-    return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M9 4v16M15 4v16M3 14h18"/></svg>;
-  }
-  if (name === "calendar") {
-    return <svg {...common}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M7 14h.01M11 14h.01M15 14h.01M7 18h.01M11 18h.01"/></svg>;
-  }
-  return <span className="river-slash-glyph" aria-hidden="true">•</span>;
+function SlashLabelText({ label }: { label: string }) {
+  if (!label.endsWith("...")) return <>{label}</>;
+  return <>{label.slice(0, -3)}<span className="river-v25-ellipsis">...</span></>;
 }
+
 
 function applyHeading(editor: Editor, level: 0 | 1 | 2 | 3 | 4 | 5 | 6): boolean {
   return editor.chain().focus().updateAttributes("listItem", {
@@ -294,6 +197,10 @@ function insertDateTime(editor: Editor): boolean {
   return true;
 }
 
+function insertEscapeCharacter(editor: Editor): boolean {
+  return editor.chain().focus().insertContent("\\").run();
+}
+
 function documentForBundle(bundle: NoteBundle): TiptapNode {
   if (bundle.note.editorDoc) {
     return normalizeEditorDocument(bundle.note.editorDoc, {
@@ -337,6 +244,7 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [boldActive, setBoldActive] = useState(false);
   const slashRef = useRef<SlashState | null>(null);
+  const [slashInput, setSlashInput] = useState<"pointer" | "keyboard" | null>(null);
   slashRef.current = slash;
 
   changeHandler.current = onChange;
@@ -478,7 +386,10 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
       return;
     }
     const next = slashContext(currentEditor);
-    if (next) setSlash({ ...next, index: -1, subIndex: -1, submenuId: null });
+    if (next) {
+      setSlashInput(null);
+      setSlash({ ...next, index: -1, subIndex: -1, submenuId: null });
+    }
   };
 
   useEffect(() => {
@@ -581,6 +492,35 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
     }).run();
   };
 
+  const currentFormat = editor.getAttributes("listItem");
+  const currentHeading = Number(currentFormat.headingLevel || 0);
+  const currentBlockType = String(currentFormat.blockType || "");
+  const $selection = editor.state.doc.resolve(editor.state.selection.from);
+  let currentListItemDepth = -1;
+  for (let depth = $selection.depth; depth > 0; depth -= 1) {
+    if ($selection.node(depth).type.name === "listItem") {
+      currentListItemDepth = depth;
+      break;
+    }
+  }
+  const currentListType = currentListItemDepth > 0
+    ? $selection.node(currentListItemDepth - 1).type.name
+    : "";
+
+  const gridItemIsCurrent = (itemId: string): boolean => {
+    if (itemId === "h1") return currentHeading === 1;
+    if (itemId === "h2") return currentHeading === 2;
+    if (itemId === "h3") return currentHeading === 3;
+    if (itemId === "h4") return currentHeading === 4;
+    if (itemId === "bullet") return currentFormat.markerVisible === true && currentListType === "bulletList";
+    if (itemId === "ordered") return currentFormat.markerVisible === true && currentListType === "orderedList";
+    if (itemId === "quote") return currentBlockType === "quote";
+    if (itemId === "comment-block") return currentBlockType === "comment";
+    if (itemId === "code-block") return currentBlockType === "code";
+    if (itemId === "divider") return currentBlockType === "divider";
+    return false;
+  };
+
   const runSlashAction = (item: SlashMenuItem, subItem?: SlashSubItem) => {
     const current = slashRef.current;
     if (!current) return;
@@ -628,6 +568,7 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         event.stopPropagation();
+        setSlashInput("keyboard");
         const delta = event.key === "ArrowDown" ? 1 : -1;
         if (submenu) {
           const subIndex = ((menu.subIndex + delta) % submenu.length + submenu.length) % submenu.length;
@@ -769,8 +710,9 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
         <EditorContent editor={editor} />
         {slash && (
           <div
-            className={`river-slash-menu ${slash.left > 360 ? "submenu-left" : ""}`}
+            className="river-slash-menu river-slash-menu-v25"
             data-testid="river-slash-menu"
+            data-menu-version="v25"
             style={{ left: slash.left, top: slash.top }}
             role="menu"
             aria-label="Effie 快捷菜单"
@@ -789,6 +731,7 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
                         aria-haspopup={item.children ? "menu" : undefined}
                         aria-expanded={item.children ? submenuOpen : undefined}
                         className={`river-slash-row ${active ? "is-active" : ""}`}
+                        data-item-id={item.id}
                         data-testid={`river-slash-${item.id}`}
                         onMouseDown={(event) => event.preventDefault()}
                         onMouseEnter={() => setSlash((current) => current ? {
@@ -805,9 +748,15 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
                           }
                         }}
                       >
-                        <SlashMenuIcon name={item.icon} />
-                        <span className="river-slash-label">{item.label}</span>
-                        {item.trailing && <span className="river-slash-trailing">{item.trailing === "chevron" ? "›" : "↵"}</span>}
+                        <RiverSlashMenuIcon name={item.icon} />
+                        <span className="river-slash-label"><SlashLabelText label={item.label} /></span>
+                        {item.trailing && (
+                          <span className="river-slash-trailing" aria-hidden="true">
+                            {item.trailing === "chevron"
+                              ? <svg viewBox="0 0 24 24" width="20" height="20"><path d="m9 5 7 7-7 7" /></svg>
+                              : <svg className="river-v25-return-arrow" width="23" height="21" viewBox="0 0 23 21"><path d="M14.168603 2.966947H22.779593V10.539888C22.779593 13.145705 20.173776 13.5 20.173776 13.5H5.046519M9 7.881054L3.32165 13.5L9 18.8" /></svg>}
+                          </span>
+                        )}
                       </button>
                       {submenuOpen && item.children && (
                         <div className="river-slash-submenu" role="menu" aria-label={item.label}>
@@ -821,7 +770,7 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
                               onMouseEnter={() => setSlash((current) => current ? { ...current, subIndex: index } : current)}
                               onClick={() => runSlashAction(item, child)}
                             >
-                              <SlashMenuIcon name={child.id.includes("ai") ? "sparkles" : "wand"} />
+                              <RiverSlashMenuIcon name={child.id.includes("ai") ? "sparkles" : "wand"} />
                               <span>{child.label}</span>
                             </button>
                           ))}
@@ -830,7 +779,14 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
                     </div>
                   );
                 }) : (
-                  <div className="river-slash-grid">
+                  <div
+                    className={`river-slash-grid ${slashInput === "keyboard" ? "is-keyboard-navigation" : ""}`}
+                    onMouseLeave={() => {
+                      if (slashInput !== "pointer") return;
+                      setSlashInput(null);
+                      setSlash((current) => current ? { ...current, index: -1, submenuId: null } : current);
+                    }}
+                  >
                     {section.items.map((item) => {
                       const itemIndex = SLASH_NAV_ITEMS.indexOf(item);
                       const active = slash.index === itemIndex;
@@ -839,15 +795,24 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
                           key={item.id}
                           type="button"
                           role="menuitem"
-                          className={`river-slash-grid-button ${active ? "is-active" : ""}`}
+                          className={`river-slash-grid-button ${active ? "is-active" : ""} ${gridItemIsCurrent(item.id) ? "is-current" : ""}`}
+                          data-item-id={item.id}
                           data-testid={`river-slash-${item.id}`}
                           aria-label={item.label}
                           title={item.label}
                           onMouseDown={(event) => event.preventDefault()}
-                          onMouseEnter={() => setSlash((current) => current ? { ...current, index: itemIndex, subIndex: -1, submenuId: null } : current)}
+                          onMouseEnter={() => {
+                            setSlashInput("pointer");
+                            setSlash((current) => current ? { ...current, index: itemIndex, subIndex: -1, submenuId: null } : current);
+                          }}
+                          onMouseLeave={() => {
+                            if (slashInput !== "pointer") return;
+                            setSlashInput(null);
+                            setSlash((current) => current ? { ...current, index: -1, submenuId: null } : current);
+                          }}
                           onClick={() => runSlashAction(item)}
                         >
-                          <SlashMenuIcon name={item.icon} />
+                          <RiverSlashMenuIcon name={item.icon} active={gridItemIsCurrent(item.id)} />
                         </button>
                       );
                     })}
@@ -875,17 +840,22 @@ function slashContext(editor: Editor): Omit<SlashState, "index" | "subIndex" | "
   const canvas = editor.view.dom.closest(".river-outline-canvas") as HTMLElement | null;
   if (!canvas) return null;
   const coords = editor.view.coordsAtPos(from);
-  const bounds = canvas.getBoundingClientRect();
-  const estimatedHeight = 590;
-  const preferredTop = coords.bottom - bounds.top + canvas.scrollTop + 6;
-  const top = preferredTop + estimatedHeight > canvas.scrollTop + canvas.clientHeight
-    ? Math.max(canvas.scrollTop + 6, coords.top - bounds.top + canvas.scrollTop - estimatedHeight - 6)
-    : preferredTop;
+  const surfaceWidth = 440;
+  const surfaceHeight = 428;
+  const surfaceInsetX = 8;
+  const surfaceInsetY = 10;
+  const margin = 12;
+  const maxSurfaceLeft = Math.max(margin, window.innerWidth - surfaceWidth - margin);
+  const surfaceLeft = Math.min(Math.max(margin, coords.left), maxSurfaceLeft);
+  const below = coords.bottom + 6;
+  const surfaceTop = below + surfaceHeight <= window.innerHeight - margin
+    ? below
+    : Math.max(margin, coords.top - surfaceHeight - 6);
   return {
     from,
     to: state.selection.from,
-    left: Math.max(8, Math.min(coords.left - bounds.left + canvas.scrollLeft, canvas.clientWidth - 326)),
-    top,
+    left: surfaceLeft - surfaceInsetX,
+    top: surfaceTop - surfaceInsetY,
   };
 }
 

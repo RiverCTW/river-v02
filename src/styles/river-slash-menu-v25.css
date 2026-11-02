@@ -1,0 +1,304 @@
+/*
+ * Frozen v25 slash-menu skin.
+ * Scoped to the slash menu only; note cards and other River surfaces are intentionally untouched.
+ */
+
+.river-slash-menu.river-slash-menu-v25 {
+  position: fixed;
+  z-index: 80;
+  width: 454px;
+  height: 442px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #303030;
+  pointer-events: none;
+  isolation: isolate;
+}
+
+.river-slash-menu.river-slash-menu-v25::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: 8px;
+  top: 10px;
+  width: 440px;
+  height: 428px;
+  border-radius: 22px / 20px;
+  background: #fcfcfc;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.18),
+    0 14px 30px rgba(36, 38, 41, 0.14),
+    0 3px 8px rgba(36, 38, 41, 0.08);
+  pointer-events: auto;
+}
+
+.river-slash-menu.river-slash-menu-v25::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  left: 9px;
+  top: 193px;
+  width: 438px;
+  height: 2px;
+  background: #e6e6e6;
+  pointer-events: none;
+}
+
+.river-slash-menu.river-slash-menu-v25 .river-slash-section {
+  position: absolute;
+  z-index: 3;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  pointer-events: none;
+}
+
+.river-slash-menu.river-slash-menu-v25 .river-slash-section.is-grid,
+.river-slash-menu.river-slash-menu-v25 .river-slash-grid {
+  inset: 0;
+  width: 454px;
+  height: 442px;
+}
+
+.river-slash-menu.river-slash-menu-v25 .river-slash-grid {
+  position: absolute;
+  display: block;
+  padding: 0;
+}
+
+.river-slash-menu.river-slash-menu-v25 .river-slash-grid-button {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 60px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #262626;
+  pointer-events: auto;
+}
+
+/* Exact v25 icon centers, kept in reference-stage coordinates. */
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(1) { left: 12px; top: 15px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(2) { left: 80px; top: 15px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(3) { left: 148px; top: 15px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(4) { left: 216px; top: 15px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(5) { left: 284px; top: 15px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(6) { left: 350px; top: 15px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(7) { left: 13px; top: 72px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(8) { left: 83px; top: 72px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(9) { left: 151px; top: 72px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(10) { left: 216px; top: 72px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(11) { left: 284px; top: 72px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(12) { left: 350px; top: 72px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(13) { left: 13px; top: 130px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(14) { left: 83px; top: 130px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(15) { left: 151px; top: 130px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(16) { left: 217px; top: 130px; }
+.river-slash-menu-v25 .river-slash-grid-button:nth-child(17) { left: 285px; top: 130px; }
+
+.river-slash-menu-v25 .river-slash-grid-button.is-current {
+  background: transparent;
+  color: #262626;
+}
+
+.river-slash-menu-v25 .river-slash-grid-button:hover,
+.river-slash-menu-v25 .river-slash-grid-button.is-active {
+  background: #007aff;
+  color: #fff;
+}
+
+.river-slash-menu-v25 .river-v25-icon {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0;
+  font-style: normal;
+  line-height: 0;
+  letter-spacing: 0;
+}
+
+.river-slash-menu-v25 .river-v25-icon.is-current,
+.river-slash-menu-v25 .river-v25-icon.is-marker,
+.river-slash-menu-v25 .river-slash-grid-button .river-v25-icon.is-current {
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.river-slash-menu-v25 .river-slash-grid-button:hover .river-v25-icon,
+.river-slash-menu-v25 .river-slash-grid-button:hover .river-v25-icon.is-current,
+.river-slash-menu-v25 .river-slash-grid-button.is-active .river-v25-icon,
+.river-slash-menu-v25 .river-slash-grid-button.is-active .river-v25-icon.is-current {
+  color: #fff;
+}
+
+/* While keyboard navigation last owns the preview, a stationary pointer must
+   not leave a second hover highlight behind. Moving the pointer re-enters
+   pointer mode through onMouseEnter and takes over the preview again. */
+.river-slash-menu-v25 .river-slash-grid.is-keyboard-navigation .river-slash-grid-button:hover:not(.is-active) {
+  background: transparent;
+  color: #262626;
+}
+
+.river-slash-menu-v25 .river-slash-grid.is-keyboard-navigation .river-slash-grid-button:hover:not(.is-active) .river-v25-icon {
+  color: #262626;
+}
+
+.river-slash-menu-v25 .river-v25-icon > svg {
+  display: block;
+  flex: none;
+  width: auto;
+  height: auto;
+  max-width: none;
+  color: inherit;
+}
+
+/* Insert section: four fixed rows and the frozen v25 typography. */
+.river-slash-menu-v25 .river-slash-section.is-rows {
+  left: 14px;
+  top: 207px;
+  display: flex;
+  width: 407px;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.river-slash-menu-v25 .river-slash-row-wrap {
+  position: relative;
+  height: 45px;
+}
+
+.river-slash-menu-v25 .river-slash-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  width: 100%;
+  height: 45px;
+  min-height: 0;
+  padding: 0 0 0 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #303030;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 25px;
+  font-weight: 400;
+  line-height: 1;
+  text-align: left;
+  pointer-events: auto;
+}
+
+.river-slash-menu-v25 .river-slash-row:hover,
+.river-slash-menu-v25 .river-slash-row.is-active {
+  background: transparent;
+}
+
+.river-slash-menu-v25 .river-slash-row > .river-v25-icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-self: flex-start;
+  margin-top: 10px;
+  color: #5f5f5f;
+}
+
+.river-slash-menu-v25 .river-slash-row .river-slash-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.river-slash-menu-v25 .river-slash-row[data-item-id="image"] .river-slash-label {
+  font-size: 24.931097px;
+  letter-spacing: 0.858567px;
+  transform: translate(0.000733px, 2.364888px);
+}
+.river-slash-menu-v25 .river-slash-row[data-item-id="link"] .river-slash-label {
+  font-size: 25.131621px;
+  letter-spacing: 0.663994px;
+  transform: translate(-0.029335px, 2.140867px);
+}
+.river-slash-menu-v25 .river-slash-row[data-item-id="table"] .river-slash-label {
+  font-size: 24.972494px;
+  letter-spacing: 0.845386px;
+  transform: translate(-0.090425px, 4.150446px);
+}
+.river-slash-menu-v25 .river-slash-row[data-item-id="datetime"] .river-slash-label {
+  font-size: 25.101516px;
+  letter-spacing: 0.637733px;
+  transform: translate(-0.038586px, 3.795298px);
+}
+
+.river-slash-menu-v25 .river-v25-ellipsis {
+  white-space: nowrap;
+  color: inherit;
+}
+.river-slash-menu-v25 .river-slash-row[data-item-id="image"] .river-v25-ellipsis {
+  margin-left: 0.809313px;
+  letter-spacing: 1.749535px;
+}
+.river-slash-menu-v25 .river-slash-row[data-item-id="link"] .river-v25-ellipsis {
+  margin-left: 0.915232px;
+  letter-spacing: 1.689023px;
+}
+.river-slash-menu-v25 .river-slash-row[data-item-id="table"] .river-v25-ellipsis {
+  margin-left: 0.866781px;
+  letter-spacing: 1.735465px;
+}
+
+.river-slash-menu-v25 .river-slash-row[data-item-id="image"] .river-v25-return-arrow { transform: translateY(1px); }
+.river-slash-menu-v25 .river-slash-row[data-item-id="link"] .river-v25-return-arrow { transform: translateY(2px); }
+.river-slash-menu-v25 .river-slash-row[data-item-id="table"] .river-v25-return-arrow { transform: translateY(3px); }
+.river-slash-menu-v25 .river-slash-row[data-item-id="datetime"] .river-v25-return-arrow { transform: translateY(4px); }
+
+.river-slash-menu-v25 .river-slash-trailing {
+  display: block;
+  flex: 0 0 23px;
+  width: 23px;
+  min-width: 23px;
+  max-width: 23px;
+  margin-left: auto;
+  color: #afafaf;
+  line-height: 0;
+}
+.river-slash-menu-v25 .river-slash-row[data-item-id="image"] .river-slash-trailing,
+.river-slash-menu-v25 .river-slash-row[data-item-id="link"] .river-slash-trailing,
+.river-slash-menu-v25 .river-slash-row[data-item-id="table"] .river-slash-trailing,
+.river-slash-menu-v25 .river-slash-row[data-item-id="datetime"] .river-slash-trailing {
+  align-self: flex-start;
+  margin-top: 12px;
+}
+.river-slash-menu-v25 .river-v25-return-arrow {
+  display: block;
+  overflow: visible;
+}
+.river-slash-menu-v25 .river-v25-return-arrow path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.925449;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.river-slash-menu-v25 .river-slash-row:hover .river-slash-trailing,
+.river-slash-menu-v25 .river-slash-row.is-active .river-slash-trailing {
+  color: #8f9193;
+}
+
+/* SVG sizing from the frozen v25 insert assets. */
+.river-slash-menu-v25 .river-v25-icon > .insert-icon-svg { display: block; width: 25px; height: 25px; }
+.river-slash-menu-v25 .river-v25-icon > .image-icon { width: 26px; height: 20px; transform: translate(3px, -1px); }
+.river-slash-menu-v25 .river-v25-icon > .link-icon { width: 27px; height: 30px; transform: translate(-0.5px, 0); }
+.river-slash-menu-v25 .river-v25-icon > .date-icon { width: 26px; height: 24px; transform: translate(1px, 2px); }
+.river-slash-menu-v25 .river-v25-icon > .table-icon { width: 26px; height: 26px; transform: translate(1px, 2px); }
