@@ -45,8 +45,11 @@ function outlinePath(width: number, height: number, requestedTab: number): strin
   const naturalSpan = Math.max(64, Math.min(80, w * 0.23));
   const targetSpan = naturalSpan * 0.45;
   const end = Math.min(right - 24, start + targetSpan);
-  const firstControl = start + (end - start) * 0.29;
-  const secondControl = end - (end - start) * 0.29;
+  const span = end - start;
+  // Asymmetric handles: a longer lower handle rounds into the low platform,
+  // while the shorter upper handle keeps the middle descent steep.
+  const firstControl = start + span * 0.35;
+  const secondControl = start + span * 0.58;
   return [
     `M20 ${high}`,
     `H${start}`,
@@ -57,8 +60,8 @@ function outlinePath(width: number, height: number, requestedTab: number): strin
     `C${w - 1} ${h - 10} ${w - 12} ${h - 1} ${w - 28} ${h - 1}`,
     "H20",
     `C8 ${h - 1} 1 ${h - 10} 1 ${h - 24}`,
-    "V20",
-    `C1 ${high - 7} 9 ${high} 20 ${high}`,
+    `V${high + 19}`,
+    `C1 ${high + 8} 9 ${high} 20 ${high}`,
     "Z",
   ].join(" ");
 }
