@@ -239,10 +239,14 @@ test("v25 image insertion, cancel and persistence use the real image node", asyn
   await expect(page.locator(".river-editor-layout .river-image-node")).toHaveCount(1);
 
   await newLine(page, "图片切换");
+  const switchingTitle = await page.locator(".river-editor-toolbar input").first().inputValue();
+  await page.evaluate(() => { (window as any).__riverImageCompressionDelayMs = 900; });
   await openMenu(page);
   const switching = page.waitForEvent("filechooser");
   await menu(page).getByTestId("river-slash-image").click();
   const switchedChooser = await switching;
+  await switchedChooser.setFiles({ name: "switched.png", mimeType: "image/png", buffer });
+  await page.waitForTimeout(120);
   await page.evaluate(async () => {
     const store = await import("/src/store/useAppStore.ts");
     const state = store.useAppStore.getState();
@@ -250,9 +254,64 @@ test("v25 image insertion, cancel and persistence use the real image node", asyn
     const other = state.notes.find((note) => note.id !== current);
     if (other) await state.openNote(other.id);
   });
-  await switchedChooser.setFiles({ name: "switched.png", mimeType: "image/png", buffer });
-  await expect(page.locator(".river-image-node")).toHaveCount(0);
   await expect(page.locator(".river-toast")).toContainText("当前笔记已切换");
+  await expect(page.locator(".river-image-node")).toHaveCount(0);
+  await page.getByRole("button", { name: "返回笔记库" }).click();
+  await page.waitForTimeout(400);
+  await page.reload();
+  const switchedCard = page.locator("article.tmi-note").filter({ hasText: switchingTitle }).first();
+  await switchedCard.getByRole("button", { name: "打开" }).click();
+  await expect(page.locator(".river-editor-layout .river-image-node")).toHaveCount(0);
+  await page.evaluate(() => { delete (window as any).__riverImageCompressionDelayMs; });
+});
+
+test("v25 image clipboard copy and cut are transactional", async ({ page }) => {
+  const buffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAI0lEQVR4nGP8//9/dO9JBjBgiu49ubTYHMphYGCA80EcOB8AlscNtkNY5NoAAAAASUVORK5CYII=", "base64");
+  await newLine(page, "剪贴板图片");
+  await openMenu(page);
+  const chooser = page.waitForEvent("filechooser");
+  await menu(page).getByTestId("river-slash-image").click();
+  await (await chooser).setFiles({ name: "clipboard.png", mimeType: "image/png", buffer });
+  await expect(page.locator(".river-image-node")).toHaveCount(1);
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { read: async () => [], write: async () => { throw new Error("剪贴板写入被拒绝"); } },
+    });
+  });
+  await page.locator(".river-image-node").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "剪切" }).click();
+  await expect(page.locator(".river-image-node")).toHaveCount(1);
+  await expect(page.locator(".river-toast")).toContainText("剪贴板写入被拒绝");
+  await page.keyboard.press("Escape");
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { read: async () => [], write: undefined },
+    });
+  });
+  await page.locator(".river-image-node").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "拷贝" }).click();
+  await expect(page.locator(".river-image-node")).toHaveCount(1);
+  await expect(page.locator(".river-toast")).toContainText("不支持图片剪贴板写入");
+  await page.keyboard.press("Escape");
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { read: async () => [], write: async () => undefined },
+    });
+  });
+  await page.locator(".river-image-node").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "剪切" }).click();
+  await expect(page.locator(".river-image-node")).toHaveCount(0);
+  await page.keyboard.press("Meta+z");
+  await expect(page.locator(".river-image-node")).toHaveCount(1);
+  await page.locator(".river-image-node").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "拷贝" }).click();
+  await expect(page.locator(".river-image-node")).toHaveCount(1);
 });
 
 test("v25 link insertion supports caret and selection and survives reopen", async ({ page }) => {
