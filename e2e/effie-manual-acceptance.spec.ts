@@ -259,7 +259,7 @@ test("heading and bullet markers are mutually exclusive in both directions", asy
   await expect(item).toHaveAttribute("data-marker-visible", "true");
 });
 
-test("slash opens anywhere, keeps the slash, shows the Effie panel and submenu", async ({ page }) => {
+test("slash opens anywhere and shows the complete 21-item v25 panel", async ({ page }) => {
   await newNote(page, "斜杠验收");
   await page.keyboard.press("Enter");
   await page.keyboard.type("Per");
@@ -270,25 +270,18 @@ test("slash opens anywhere, keeps the slash, shows the Effie panel and submenu",
   await expect(item.locator(":scope > .river-outline-content > p")).toHaveText("Per/sonal");
   const menu = page.locator(".river-slash-menu");
   await expect(menu).toBeVisible();
-  await expect(menu.getByTestId("river-slash-effie-ai")).toBeVisible();
-  await expect(menu.getByTestId("river-slash-h1")).toBeVisible();
-  await expect(menu.getByTestId("river-slash-h4")).toBeVisible();
-  await expect(menu.getByTestId("river-slash-bullet")).toBeVisible();
-  await expect(menu.getByTestId("river-slash-ordered")).toBeVisible();
-  await expect(menu.getByTestId("river-slash-bold")).toBeVisible();
-  await expect(menu.getByTestId("river-slash-marker")).toBeVisible();
-  await expect(menu.getByTestId("river-slash-code")).toBeVisible();
-  await expect(menu.getByTestId("river-slash-image")).toBeVisible();
-  await expect(menu.getByTestId("river-slash-link")).toBeVisible();
-  await expect(menu.getByTestId("river-slash-table")).toBeVisible();
-  await expect(menu.getByTestId("river-slash-datetime")).toBeVisible();
-
-  await menu.getByTestId("river-slash-effie-ai").hover();
-  const submenu = menu.locator(".river-slash-submenu");
-  await expect(submenu).toBeVisible();
-  await expect(submenu).toContainText("优化改写");
-  await expect(submenu).toContainText("调整风格");
-  await expect(submenu).toContainText("AI点评");
+  await expect(menu).toHaveAttribute("data-menu-version", "v25");
+  await expect(menu.locator("[data-item-id]")).toHaveCount(21);
+  for (const testId of [
+    "h1", "h2", "h3", "h4", "bullet", "ordered",
+    "bold", "italic", "strike", "marker", "comment", "code",
+    "quote", "comment-block", "code-block", "divider", "escape",
+    "image", "link", "table", "datetime",
+  ]) {
+    await expect(menu.getByTestId(`river-slash-${testId}`)).toBeVisible();
+  }
+  await expect(menu.getByTestId("river-slash-effie-ai")).toHaveCount(0);
+  await expect(menu.getByTestId("river-slash-ask-ai")).toHaveCount(0);
 
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
@@ -303,11 +296,9 @@ test("slash menu keyboard navigation and command execution work", async ({ page 
   await expect(menu).toBeVisible();
 
   await page.keyboard.press("ArrowDown");
-  await expect(menu.getByTestId("river-slash-effie-ai")).toHaveClass(/is-active/);
-  await expect(menu.locator(".river-slash-submenu")).toBeVisible();
-  await page.keyboard.press("ArrowRight");
+  await expect(menu.getByTestId("river-slash-h1")).toHaveClass(/is-active/);
   await page.keyboard.press("ArrowDown");
-  await expect(menu.locator(".river-slash-subitem.is-active")).toContainText("调整风格");
+  await expect(menu.getByTestId("river-slash-h2")).toHaveClass(/is-active/);
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
 
