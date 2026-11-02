@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
-import { isHistoryTransaction } from "@tiptap/pm/history";
+import { closeHistory, isHistoryTransaction } from "@tiptap/pm/history";
 import { nanoid } from "nanoid";
 import type { ContentBlock, ContentBlockType, EditorDocumentSnapshot, KnowledgeNode, NoteBundle } from "../types";
 import { emptyOutlineDocument, nodesToTiptap, normalizeEditorDocument, tiptapToNodes, type TiptapNode } from "./convert";
@@ -11,6 +11,7 @@ import { cacheEditorSnapshot } from "./snapshotCache";
 import { Icon } from "../components/IconSprite";
 import { RiverSlashMenuIcon } from "./RiverSlashMenuV25";
 import { useAppStore } from "../store/useAppStore";
+import { pickAndInsertImage } from "./imageExtension";
 import {
   endSubtreeDrag,
   findNearestListItem,
@@ -84,7 +85,7 @@ const FORMAT_SLASH_ITEMS: SlashMenuItem[] = [
 ];
 
 const INSERT_SLASH_ITEMS: SlashMenuItem[] = [
-  { id: "image", label: "插入图片...", icon: "image", trailing: "return", run: (editor) => notifyUnavailable(editor, "插入图片") },
+  { id: "image", label: "插入图片...", icon: "image", trailing: "return", run: () => false },
   { id: "link", label: "插入链接...", icon: "link", trailing: "return", run: (editor) => insertLink(editor) },
   { id: "table", label: "插入表格...", icon: "table", trailing: "return", run: (editor) => notifyUnavailable(editor, "插入表格") },
   { id: "datetime", label: "插入日期和时间", icon: "datetime", trailing: "return", run: (editor) => insertDateTime(editor) },
@@ -173,16 +174,31 @@ function clearFormatting(editor: Editor): boolean {
 }
 
 function insertLink(editor: Editor): boolean {
-  const url = window.prompt("输入链接地址");
-  if (!url?.trim()) return false;
+  const input = window.prompt("输入链接地址");
+  if (!input?.trim()) return false;
+  const raw = input.trim();
+  const href = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(href);
+    if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("unsupported protocol");
+  } catch {
+    useAppStore.getState().showToast("链接地址无效，请输入有效的 http 或 https 链接。", "error");
+    return false;
+  }
   const { from, to } = editor.state.selection;
   const selected = editor.state.doc.textBetween(from, to, "\n").trim();
   if (!selected) {
-    editor.chain().focus().insertContent(url.trim()).run();
+    if (!editor.schema.marks.link) {
+      useAppStore.getState().showToast("当前编辑器未启用链接功能。", "error");
+      return false;
+    }
+    const text = href;
+    editor.chain().focus().insertContent({ type: "text", text, marks: [{ type: "link", attrs: { href, target: "_blank", rel: "noopener noreferrer" } }] }).run();
     return true;
   }
-  editor.chain().focus().setTextSelection({ from, to }).extendMarkRange("link").setLink({ href: url.trim(), target: "_blank", rel: "noopener noreferrer" }).run();
-  return true;
+  const applied = editor.chain().focus().setTextSelection({ from, to }).extendMarkRange("link").setLink({ href, target: "_blank", rel: "noopener noreferrer" }).run();
+  if (!applied) useAppStore.getState().showToast("链接插入失败，请重试。", "error");
+  return applied;
 }
 
 function insertDateTime(editor: Editor): boolean {
@@ -524,10 +540,25 @@ export function OutlineEditor({ bundle, instanceId, onChange, focusMode, onToggl
   const runSlashAction = (item: SlashMenuItem, subItem?: SlashSubItem) => {
     const current = slashRef.current;
     if (!current) return;
+    // Keep the slash command and its edit separate from the keystrokes that
+    // created the current line, so Undo removes the command rather than the
+    // whole line. Close again afterwards so subsequent typing is its own step.
+    editor.view.dispatch(closeHistory(editor.state.tr));
     setSlash(null);
     editor.chain().focus().deleteRange({ from: current.from, to: current.from + 1 }).run();
-    if (subItem) subItem.run(editor);
-    else item.run?.(editor);
+    if (subItem) {
+      subItem.run(editor);
+    } else if (item.id === "image") {
+      const noteId = bundleRef.current.note.id;
+      const position = editor.state.selection.to;
+      pickAndInsertImage(editor, (message) => useAppStore.getState().showToast(message, "error"), {
+        position,
+        isCurrent: () => bundleRef.current.note.id === noteId,
+      });
+    } else {
+      item.run?.(editor);
+    }
+    editor.view.dispatch(closeHistory(editor.state.tr));
   };
 
   const toggleBold = () => {

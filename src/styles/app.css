@@ -613,6 +613,79 @@ button {
   background: light-dark(#cfe4e0, #32504c);
 }
 
+
+/* River image node: inserted images are persisted in the editorDoc data URL. */
+.river-image-node {
+  position: relative;
+  display: block;
+  max-width: 100%;
+  margin: 9px 0 10px;
+  padding: 0;
+  border-radius: 8px;
+  outline: 1px solid transparent;
+}
+
+.river-image-node:hover,
+.river-image-node:focus-within,
+.river-image-node.ProseMirror-selectednode {
+  outline-color: #5b9ed0;
+}
+
+.river-image-node img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 640px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: light-dark(#f4f2ed, #202529);
+}
+
+.river-image-menu {
+  position: absolute;
+  z-index: 120;
+  top: 12px;
+  left: min(260px, 78%);
+  width: 180px;
+  padding: 6px;
+  border: 1px solid light-dark(#d7d3cb, #3b4246);
+  border-radius: 10px;
+  background: light-dark(#f7f7f7, #252a2d);
+  box-shadow: 0 12px 32px light-dark(rgba(30, 32, 35, 0.22), rgba(0, 0, 0, 0.5));
+}
+
+.river-image-menu button {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 4px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.river-image-menu button:hover {
+  background: #1677ff;
+  color: #fff;
+}
+
+.river-image-menu-separator {
+  height: 1px;
+  margin: 5px 7px;
+  background: light-dark(#dedbd5, #3b4246);
+}
+
+.river-outline-editor a[href] {
+  color: #1677c8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .river-outline-editor .river-semantic-pink {
   color: light-dark(#bd4776, #e38bad);
   font-weight: 650;

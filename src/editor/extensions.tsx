@@ -9,6 +9,7 @@ import { Fragment } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection, type Selection, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { blockTypeLabels, type ContentBlockType } from "../types";
+import Link from "@tiptap/extension-link";
 import {
   beginSubtreeDrag,
   backspaceOutlineBoundary,
@@ -30,6 +31,7 @@ import {
   splitItemAtSelection,
 } from "./commands";
 import { parseSemanticMarkers, semanticClassName } from "./semanticMarkers";
+import { RiverImage } from "./imageExtension";
 
 function currentPosition(getPos: () => number | undefined): number | null {
   const position = getPos();
@@ -1015,6 +1017,13 @@ export function createOutlineExtensions() {
     Placeholder.configure({ placeholder: "开始输入…按 Enter 新建条目，Tab 缩进，Shift+Tab 提升层级。" }),
     Highlight.configure({ multicolor: true }),
     Underline,
+    Link.configure({
+      openOnClick: false,
+      autolink: true,
+      linkOnPaste: true,
+      HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" },
+    }),
+    RiverImage,
     SemanticDecoration,
     SearchHighlight,
     OutlineLineNumbers,
