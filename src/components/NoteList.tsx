@@ -35,14 +35,19 @@ function outlinePath(width: number, height: number, requestedTab: number): strin
   const w = Math.max(160, width);
   const h = Math.max(120, height);
   const t = Math.max(64, Math.min(requestedTab, w * 0.6, w - 96));
+  const low = 53;
+  const right = w - 28;
+  const start = Math.max(20, t - 12);
+  const targetSpan = Math.max(64, Math.min(80, w * 0.23));
+  const end = Math.min(right - 24, start + targetSpan);
+  const firstControl = start + (end - start) * 0.29;
+  const secondControl = end - (end - start) * 0.29;
   return [
     "M20 1",
-    `H${t - 20}`,
-    `C${t - 8} 1 ${t} 6 ${t + 6} 15`,
-    `L${t + 18} 36`,
-    `C${t + 23} 46 ${t + 33} 53 ${t + 46} 53`,
-    `H${w - 28}`,
-    `C${w - 12} 53 ${w - 1} 67 ${w - 1} 88`,
+    `H${start}`,
+    `C${firstControl} 1 ${secondControl} ${low} ${end} ${low}`,
+    `H${right}`,
+    `C${w - 12} ${low} ${w - 1} 67 ${w - 1} 88`,
     `V${h - 24}`,
     `C${w - 1} ${h - 10} ${w - 12} ${h - 1} ${w - 28} ${h - 1}`,
     "H20",
@@ -85,7 +90,20 @@ function EffieNoteCard({ note, preview, selected, deletedView, folderLabel, onSe
   }, []);
 
   useLayoutEffect(() => {
-    if (measureRef.current) setTextWidth(measureRef.current.getBoundingClientRect().width);
+    const label = measureRef.current;
+    if (!label) return;
+    let cancelled = false;
+    const measureLabel = () => {
+      if (!cancelled) setTextWidth(label.getBoundingClientRect().width);
+    };
+    measureLabel();
+    document.fonts?.ready.then(measureLabel).catch(() => {});
+    const observer = new ResizeObserver(measureLabel);
+    observer.observe(label);
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
   }, [displayTitle, size.width]);
 
   const tabWidth = Math.max(

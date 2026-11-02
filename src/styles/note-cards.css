@@ -67,6 +67,8 @@
   position: absolute;
   top: 0;
   left: -9999px;
+  display: block;
+  width: max-content;
   visibility: hidden;
   white-space: nowrap;
   pointer-events: none;
