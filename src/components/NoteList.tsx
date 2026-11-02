@@ -36,16 +36,21 @@ function outlinePath(width: number, height: number, requestedTab: number): strin
   const h = Math.max(120, height);
   const t = Math.max(64, Math.min(requestedTab, w * 0.6, w - 96));
   const low = 53;
+  // Scheme 3 keeps the low platform fixed and lowers the left ear to 70%
+  // of its previous height difference. The descent is 45% of the former
+  // natural span; control points preserve smooth tangent transitions.
+  const high = 1 + (low - 1) * 0.30;
   const right = w - 28;
   const start = Math.max(20, t - 12);
-  const targetSpan = Math.max(64, Math.min(80, w * 0.23));
+  const naturalSpan = Math.max(64, Math.min(80, w * 0.23));
+  const targetSpan = naturalSpan * 0.45;
   const end = Math.min(right - 24, start + targetSpan);
   const firstControl = start + (end - start) * 0.29;
   const secondControl = end - (end - start) * 0.29;
   return [
-    "M20 1",
+    `M20 ${high}`,
     `H${start}`,
-    `C${firstControl} 1 ${secondControl} ${low} ${end} ${low}`,
+    `C${firstControl} ${high} ${secondControl} ${low} ${end} ${low}`,
     `H${right}`,
     `C${w - 12} ${low} ${w - 1} 67 ${w - 1} 88`,
     `V${h - 24}`,
@@ -53,7 +58,7 @@ function outlinePath(width: number, height: number, requestedTab: number): strin
     "H20",
     `C8 ${h - 1} 1 ${h - 10} 1 ${h - 24}`,
     "V20",
-    "C1 9 9 1 20 1",
+    `C1 ${high - 7} 9 ${high} 20 ${high}`,
     "Z",
   ].join(" ");
 }

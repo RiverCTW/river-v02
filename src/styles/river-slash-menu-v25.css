@@ -4,10 +4,13 @@
  */
 
 .river-slash-menu.river-slash-menu-v25 {
+  --river-slash-scale: 0.7745966692; /* sqrt(0.60) */
   position: fixed;
   z-index: 80;
   width: 454px;
   height: 442px;
+  transform: scale(var(--river-slash-scale));
+  transform-origin: top left;
   padding: 0;
   border: 0;
   border-radius: 0;

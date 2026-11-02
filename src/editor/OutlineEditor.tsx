@@ -98,6 +98,8 @@ const SLASH_SECTIONS: SlashSection[] = [
 
 const SLASH_NAV_ITEMS = SLASH_SECTIONS.flatMap((section) => section.items);
 
+const RIVER_SLASH_SCALE = 0.7745966692; // sqrt(0.60)
+
 function SlashLabelText({ label }: { label: string }) {
   if (!label.endsWith("...")) return <>{label}</>;
   return <>{label.slice(0, -3)}<span className="river-v25-ellipsis">...</span></>;
@@ -871,10 +873,10 @@ function slashContext(editor: Editor): Omit<SlashState, "index" | "subIndex" | "
   const canvas = editor.view.dom.closest(".river-outline-canvas") as HTMLElement | null;
   if (!canvas) return null;
   const coords = editor.view.coordsAtPos(from);
-  const surfaceWidth = 440;
-  const surfaceHeight = 428;
-  const surfaceInsetX = 8;
-  const surfaceInsetY = 10;
+  const surfaceWidth = 440 * RIVER_SLASH_SCALE;
+  const surfaceHeight = 428 * RIVER_SLASH_SCALE;
+  const surfaceInsetX = 8 * RIVER_SLASH_SCALE;
+  const surfaceInsetY = 10 * RIVER_SLASH_SCALE;
   const margin = 12;
   const maxSurfaceLeft = Math.max(margin, window.innerWidth - surfaceWidth - margin);
   const surfaceLeft = Math.min(Math.max(margin, coords.left), maxSurfaceLeft);
