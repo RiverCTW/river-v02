@@ -30,20 +30,25 @@ interface MenuState { x: number; y: number; note: Note }
 
 const TAB_FONT = '600 11px "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
 const TAB_PADDING = 44;
+// Measured from the selected scheme-3 card crop: 60 / 1069 and 104 / 1069.
+// These are ratios, not the rounded design labels in the reference image.
+const CARD_LOW_PLATFORM = 53;
+const CARD_EAR_HEIGHT_RATIO = 60 / 1069;
+const CARD_DESCENT_SPAN_RATIO = 104 / 1069;
+
+function cardHigh(width: number): number {
+  return CARD_LOW_PLATFORM - Math.max(160, width) * CARD_EAR_HEIGHT_RATIO;
+}
 
 function outlinePath(width: number, height: number, requestedTab: number): string {
   const w = Math.max(160, width);
   const h = Math.max(120, height);
   const t = Math.max(64, Math.min(requestedTab, w * 0.6, w - 96));
-  const low = 53;
-  // Scheme 3 keeps the low platform fixed and lowers the left ear to 70%
-  // of its previous height difference. The descent is 45% of the former
-  // natural span; control points preserve smooth tangent transitions.
-  const high = 1 + (low - 1) * 0.30;
+  const low = CARD_LOW_PLATFORM;
+  const high = cardHigh(w);
   const right = w - 28;
   const start = Math.max(20, t - 12);
-  const naturalSpan = Math.max(64, Math.min(80, w * 0.23));
-  const targetSpan = naturalSpan * 0.45;
+  const targetSpan = w * CARD_DESCENT_SPAN_RATIO;
   const end = Math.min(right - 24, start + targetSpan);
   const span = end - start;
   // Asymmetric handles: a longer lower handle rounds into the low platform,
@@ -118,6 +123,7 @@ function EffieNoteCard({ note, preview, selected, deletedView, folderLabel, onSe
     size.width * 0.3,
     Math.min(textWidth + TAB_PADDING, size.width * 0.6, size.width - 96),
   );
+  const tabTop = Math.max(0, cardHigh(size.width) - 14);
 
   return (
     <article
@@ -132,7 +138,7 @@ function EffieNoteCard({ note, preview, selected, deletedView, folderLabel, onSe
         <path d={outlinePath(size.width, size.height, tabWidth)} />
       </svg>
       <span ref={measureRef} className="effie-card-tab-measure" style={{ font: TAB_FONT }} aria-hidden="true">{displayTitle}</span>
-      <div className="effie-card-tab" style={{ width: tabWidth }} title={displayTitle}>
+      <div className="effie-card-tab" style={{ width: tabWidth, top: tabTop }} title={displayTitle}>
         <span className="effie-card-tab-label">{displayTitle}</span>
       </div>
       <button className={`note-heart ${note.favorite ? "is-favorite" : ""}`} onClick={(event) => { event.stopPropagation(); onFavorite(); }} aria-label={note.favorite ? "取消收藏" : "收藏"}>{note.favorite ? "♥" : "♡"}</button>
