@@ -30,11 +30,11 @@ interface MenuState { x: number; y: number; note: Note }
 
 const TAB_FONT = '600 11px "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
 const TAB_PADDING = 44;
-// Measured from the selected scheme-3 card crop: 60 / 1069 and 104 / 1069.
-// These are ratios, not the rounded design labels in the reference image.
+// Measured from the selected compact-shoulder card crop. The ear height stays
+// at the production ratio; the shorter descent comes from the B reference.
 const CARD_LOW_PLATFORM = 53;
 const CARD_EAR_HEIGHT_RATIO = 60 / 1069;
-const CARD_DESCENT_SPAN_RATIO = 104 / 1069;
+const CARD_DESCENT_SPAN_RATIO = 59 / 922;
 
 function cardHigh(width: number): number {
   return CARD_LOW_PLATFORM - Math.max(160, width) * CARD_EAR_HEIGHT_RATIO;
@@ -51,10 +51,10 @@ function outlinePath(width: number, height: number, requestedTab: number): strin
   const targetSpan = w * CARD_DESCENT_SPAN_RATIO;
   const end = Math.min(right - 24, start + targetSpan);
   const span = end - start;
-  // Asymmetric handles: a longer lower handle rounds into the low platform,
-  // while the shorter upper handle keeps the middle descent steep.
-  const firstControl = start + span * 0.35;
-  const secondControl = start + span * 0.58;
+  // The compact B shoulder turns out quickly, descends steeply through the
+  // middle, and uses a slightly longer lower handle to settle into the ledge.
+  const firstControl = start + span * 0.31;
+  const secondControl = start + span * 0.555;
   return [
     `M20 ${high}`,
     `H${start}`,
